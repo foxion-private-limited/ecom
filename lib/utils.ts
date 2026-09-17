@@ -61,7 +61,8 @@ export function formatINR(
 }
 
 /**
- * Format date in standard Indian business format: DD/MM/YYYY or DD MMM YYYY
+ * Format date in standard Indian business format: DD/MM/YYYY
+ * Strictly anchored to Asia/Kolkata timezone to avoid date shifts across client platforms
  */
 export function formatIndianDate(
   dateInput: Date | string | number | null | undefined,
@@ -71,36 +72,113 @@ export function formatIndianDate(
   const d = new Date(dateInput);
   if (isNaN(d.getTime())) return "—";
 
-  const day = String(d.getDate()).padStart(2, "0");
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const year = d.getFullYear();
-
-  let formatted = "";
   if (options?.shortMonth) {
-    formatted = `${day} ${months[d.getMonth()]} ${year}`;
-  } else {
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    formatted = `${day}/${month}/${year}`;
+    const formatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: options?.withTime ? "2-digit" : undefined,
+      minute: options?.withTime ? "2-digit" : undefined,
+      hour12: false,
+    });
+    return formatter.format(d);
   }
 
-  if (options?.withTime) {
-    const hours = String(d.getHours()).padStart(2, "0");
-    const minutes = String(d.getMinutes()).padStart(2, "0");
-    formatted += ` ${hours}:${minutes}`;
+  const dmyFormatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: options?.withTime ? "2-digit" : undefined,
+    minute: options?.withTime ? "2-digit" : undefined,
+    hour12: false,
+  });
+
+  return dmyFormatter.format(d);
+}
+
+/**
+ * Direct alias for formatIndianDate to ensure DD/MM/YYYY across application
+ */
+export function formatDate(dateInput: Date | string | number | null | undefined): string {
+  return formatIndianDate(dateInput);
+}
+
+/**
+ * Reliably parse DD/MM/YYYY, DD-MM-YYYY, Excel serial, or ISO string into a normalized Date
+ * Stored at 12:00:00 UTC (17:30 IST) to prevent timezone drift across device platforms
+ */
+export function parseIndianDate(val: string | number | Date | null | undefined): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null;
+    return new Date(Date.UTC(val.getUTCFullYear(), val.getUTCMonth(), val.getUTCDate(), 12, 0, 0));
   }
 
-  return formatted;
+  if (typeof val === "number") {
+    // Excel date serial number (days since Dec 30, 1899)
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const targetDate = new Date(excelEpoch.getTime() + Math.round(val * 86400 * 1000));
+    if (isNaN(targetDate.getTime())) return null;
+    return new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate(), 12, 0, 0));
+  }
+
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+
+    // Explicit DD/MM/YYYY or DD-MM-YYYY match
+    const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      let year = parseInt(dmyMatch[3], 10);
+      if (year < 100) year += 2000;
+
+      if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900 && year <= 2100) {
+        return new Date(Date.UTC(year, month, day, 12, 0, 0));
+      }
+    }
+
+    // YYYY-MM-DD match
+    const ymdMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = parseInt(ymdMatch[3], 10);
+      if (day >= 1 && day <= 31 && month >= 0 && month <= 11) {
+        return new Date(Date.UTC(year, month, day, 12, 0, 0));
+      }
+    }
+
+    const fallback = new Date(trimmed);
+    if (!isNaN(fallback.getTime())) {
+      return new Date(Date.UTC(fallback.getUTCFullYear(), fallback.getUTCMonth(), fallback.getUTCDate(), 12, 0, 0));
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Returns ISO date string in YYYY-MM-DD format for date input controls
+ */
+export function toInputDateString(dateInput: Date | string | number | null | undefined): string {
+  if (!dateInput) return "";
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(d);
+
+  const day = parts.find((p) => p.type === "day")?.value || "01";
+  const month = parts.find((p) => p.type === "month")?.value || "01";
+  const year = parts.find((p) => p.type === "year")?.value || "2026";
+
+  return `${year}-${month}-${day}`;
 }

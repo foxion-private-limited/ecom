@@ -4,3 +4,4 @@ export * from "@/components/ui/Badge";
 export * from "@/components/ui/Input";
 export * from "@/components/ui/Select";
 export * from "@/components/ui/Modal";
+export * from "@/components/ui/IndianDateInput";

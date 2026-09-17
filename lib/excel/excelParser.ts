@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { ExcelAccountingRow } from "./types";
+import { parseIndianDate } from "@/lib/utils";
 
 /**
  * Normalize header key to match expected field name
@@ -86,37 +87,10 @@ function normalizeHeader(header: string): string {
 }
 
 /**
- * Safely parse date from Excel cell (serial number or string)
+ * Safely parse date from Excel cell (serial number, Date object, or DD/MM/YYYY string)
  */
-export function parseExcelDate(val: any): Date | null {
-  if (!val) return null;
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-
-  // If numeric (Excel serial date number)
-  if (typeof val === "number") {
-    // Excel base date offset
-    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-    return isNaN(date.getTime()) ? null : date;
-  }
-
-  if (typeof val === "string") {
-    const trimmed = val.trim();
-    // Try DD/MM/YYYY or DD-MM-YYYY
-    const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-    if (dmyMatch) {
-      const day = parseInt(dmyMatch[1], 10);
-      const month = parseInt(dmyMatch[2], 10) - 1;
-      let year = parseInt(dmyMatch[3], 10);
-      if (year < 100) year += 2000;
-      const d = new Date(year, month, day);
-      if (!isNaN(d.getTime())) return d;
-    }
-
-    const d = new Date(trimmed);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  return null;
+export function parseExcelDate(val: string | number | Date | null | undefined): Date | null {
+  return parseIndianDate(val);
 }
 
 /**
@@ -126,18 +100,17 @@ export function parseExcelBuffer(buffer: Buffer | ArrayBuffer): {
   headers: string[];
   rows: Partial<ExcelAccountingRow>[];
 } {
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
     throw new Error("Excel file has no worksheets");
   }
 
   const sheet = workbook.Sheets[sheetName];
-  const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, {
+  const rawData = XLSX.utils.sheet_to_json<Array<string | number | undefined>>(sheet, {
     header: 1,
     defval: "",
-    raw: false,
-    dateNF: "yyyy-mm-dd",
+    raw: true,
   });
 
   if (!rawData || rawData.length === 0) {
@@ -149,7 +122,7 @@ export function parseExcelBuffer(buffer: Buffer | ArrayBuffer): {
   while (
     headerRowIndex < rawData.length &&
     (!rawData[headerRowIndex] ||
-      rawData[headerRowIndex].every((c) => !c || String(c).trim() === ""))
+      rawData[headerRowIndex].every((c) => c === "" || c === null || c === undefined))
   ) {
     headerRowIndex++;
   }
@@ -158,7 +131,7 @@ export function parseExcelBuffer(buffer: Buffer | ArrayBuffer): {
     return { headers: [], rows: [] };
   }
 
-  const rawHeaders = rawData[headerRowIndex].map((h) => String(h).trim());
+  const rawHeaders = rawData[headerRowIndex].map((h) => String(h || "").trim());
   const mappedHeaders = rawHeaders.map(normalizeHeader);
 
   const rows: Partial<ExcelAccountingRow>[] = [];
@@ -169,7 +142,7 @@ export function parseExcelBuffer(buffer: Buffer | ArrayBuffer): {
       continue; // Skip empty rows
     }
 
-    const rowObj: any = {};
+    const rowObj: Record<string, string | number | boolean | Date | undefined> = {};
     for (let j = 0; j < mappedHeaders.length; j++) {
       const field = mappedHeaders[j];
       if (field) {
@@ -177,7 +150,7 @@ export function parseExcelBuffer(buffer: Buffer | ArrayBuffer): {
       }
     }
 
-    rows.push(rowObj);
+    rows.push(rowObj as unknown as Partial<ExcelAccountingRow>);
   }
 
   return { headers: rawHeaders, rows };

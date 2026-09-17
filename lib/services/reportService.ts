@@ -3,7 +3,6 @@ import { Transaction, AccountType } from "@/lib/models/Transaction";
 import { Order } from "@/lib/models/Order";
 import { Purchase } from "@/lib/models/Purchase";
 import { Product } from "@/lib/models/Product";
-import { StockMovement } from "@/lib/models/StockMovement";
 import { getDateRange, DateRangePreset } from "./dashboardService";
 
 export interface ReportFilterOptions {
@@ -307,5 +306,234 @@ export async function getEcommerceAnalyticsReport(options: ReportFilterOptions =
       grossProfit: p.grossProfit,
       margin: p.revenue > 0 ? (p.grossProfit / p.revenue) * 100 : 0,
     })),
+  };
+}
+
+export async function getSalesReport(options: ReportFilterOptions = {}) {
+  await connectDB();
+  const { start, end } = getDateRange(options.preset, options.startDate, options.endDate);
+
+  const query: Record<string, unknown> = {
+    date: { $gte: start, $lte: end },
+    orderStatus: { $ne: "CANCELLED" },
+  };
+
+  if (options.platform && options.platform !== "ALL") {
+    query.platform = options.platform;
+  }
+
+  const orders = await Order.find(query).sort({ date: -1 }).lean();
+
+  let totalSales = 0;
+  let totalUnits = 0;
+  let totalCogs = 0;
+  let totalGrossProfit = 0;
+
+  const tableRows = [];
+
+  for (const o of orders) {
+    totalSales += o.netAmount || 0;
+    totalCogs += o.estimatedCogs || 0;
+    totalGrossProfit += o.grossProfit || 0;
+
+    for (const it of o.items) {
+      totalUnits += it.quantity;
+      tableRows.push({
+        orderId: o.orderId,
+        date: o.date,
+        platform: o.platform,
+        customerName: o.customerName,
+        productName: it.productName,
+        sku: it.sku,
+        quantity: it.quantity,
+        sellingPrice: it.sellingPrice,
+        total: it.total,
+        orderStatus: o.orderStatus,
+        paymentStatus: o.paymentStatus,
+      });
+    }
+  }
+
+  return {
+    period: { start, end },
+    kpis: {
+      totalSales,
+      totalUnits,
+      totalCogs,
+      totalOrders: orders.length,
+      averageOrderValue: orders.length > 0 ? Math.round(totalSales / orders.length) : 0,
+      grossProfit: totalGrossProfit,
+      margin: totalSales > 0 ? Math.round((totalGrossProfit / totalSales) * 100) : 0,
+    },
+    rows: tableRows,
+  };
+}
+
+export async function getPurchasesReport(options: ReportFilterOptions = {}) {
+  await connectDB();
+  const { start, end } = getDateRange(options.preset, options.startDate, options.endDate);
+
+  const query: Record<string, unknown> = {
+    date: { $gte: start, $lte: end },
+  };
+
+  const purchases = await Purchase.find(query).sort({ date: -1 }).lean();
+
+  let totalPurchasesAmount = 0;
+  let totalInputGst = 0;
+  let totalInwardUnits = 0;
+  const suppliers = new Set<string>();
+
+  const tableRows = [];
+
+  for (const p of purchases) {
+    totalPurchasesAmount += p.totalAmount || 0;
+    totalInputGst += p.totalGst || 0;
+    if (p.supplierName) suppliers.add(p.supplierName);
+
+    for (const it of p.items) {
+      totalInwardUnits += it.quantity;
+      tableRows.push({
+        invoiceNumber: p.invoiceNumber,
+        date: p.date,
+        supplierName: p.supplierName,
+        productName: it.productName,
+        sku: it.sku,
+        quantity: it.quantity,
+        purchasePrice: it.purchasePrice,
+        gstRate: it.gstRate,
+        gstAmount: it.gstAmount,
+        total: it.total,
+        paymentMode: p.paymentMode,
+        paymentStatus: p.paymentStatus,
+      });
+    }
+  }
+
+  return {
+    period: { start, end },
+    kpis: {
+      totalPurchasesAmount,
+      totalInputGst,
+      totalInwardUnits,
+      uniqueSuppliers: suppliers.size,
+    },
+    rows: tableRows,
+  };
+}
+
+export async function getExpensesReport(options: ReportFilterOptions = {}) {
+  await connectDB();
+  const { start, end } = getDateRange(options.preset, options.startDate, options.endDate);
+
+  const match: Record<string, unknown> = {
+    accountType: "MAIN",
+    isArchived: { $ne: true },
+    date: { $gte: start, $lte: end },
+    debit: { $gt: 0 },
+    category: { $ne: "Purchases / Inventory Inward" },
+  };
+
+  if (options.category && options.category !== "ALL") {
+    match.category = options.category;
+  }
+
+  const [expensesAgg, rows] = await Promise.all([
+    Transaction.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$category",
+          total: { $sum: "$debit" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { total: -1 } },
+    ]),
+    Transaction.find(match).sort({ date: -1 }).lean(),
+  ]);
+
+  const totalExpense = rows.reduce((acc, r) => acc + (r.debit || 0), 0);
+  const bankPaid = rows.filter((r) => r.bankOrCash === "Bank").reduce((acc, r) => acc + (r.debit || 0), 0);
+  const cashPaid = rows.filter((r) => r.bankOrCash === "Cash").reduce((acc, r) => acc + (r.debit || 0), 0);
+
+  return {
+    period: { start, end },
+    kpis: {
+      totalExpense,
+      bankPaid,
+      cashPaid,
+      topCategory: expensesAgg[0]?._id || "N/A",
+      topCategoryAmount: expensesAgg[0]?.total || 0,
+    },
+    byCategory: expensesAgg.map((c) => ({
+      category: c._id,
+      amount: c.total,
+      count: c.count,
+      percentage: totalExpense > 0 ? Math.round((c.total / totalExpense) * 100) : 0,
+    })),
+    rows: rows.map((r) => ({
+      date: r.date,
+      description: r.description,
+      category: r.category,
+      amount: r.debit,
+      paymentMode: r.paymentMode,
+      bankOrCash: r.bankOrCash,
+      partyName: r.partyName,
+      billAvailable: r.billAvailable,
+    })),
+  };
+}
+
+export async function getInventoryReport() {
+  await connectDB();
+  const products = await Product.find({ isActive: true }).populate("category", "name").lean();
+
+  let totalValuation = 0;
+  let totalStockUnits = 0;
+  let lowStockCount = 0;
+  let criticalCount = 0;
+
+  const rows = products.map((p) => {
+    const stock = p.currentStock || 0;
+    const price = p.purchasePrice || 0;
+    const val = stock * price;
+    totalValuation += val;
+    totalStockUnits += stock;
+
+    let status: "GOOD" | "LOW" | "CRITICAL" | "OUT" = "GOOD";
+    if (stock <= 0) {
+      status = "OUT";
+    } else if (stock <= 5) {
+      status = "CRITICAL";
+      criticalCount++;
+    } else if (stock <= (p.lowStockThreshold || 10)) {
+      status = "LOW";
+      lowStockCount++;
+    }
+
+    return {
+      id: p._id,
+      name: p.name,
+      sku: p.sku,
+      category: (p.category as unknown as { name?: string })?.name || "General",
+      purchasePrice: p.purchasePrice,
+      sellingPrice: p.sellingPrice,
+      currentStock: stock,
+      threshold: p.lowStockThreshold || 10,
+      valuation: val,
+      status,
+    };
+  });
+
+  return {
+    kpis: {
+      totalProducts: products.length,
+      totalValuation,
+      totalStockUnits,
+      lowStockCount,
+      criticalCount,
+    },
+    rows,
   };
 }

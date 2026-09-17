@@ -1,5 +1,3 @@
-import { AccountType } from "@/lib/models/Transaction";
-
 export interface ExcelAccountingRow {
   slNo?: number | string;
   date: string | Date;
@@ -24,6 +22,32 @@ export interface ExcelRowValidationResult {
   isValid: boolean;
   data: ExcelAccountingRow;
   errors: string[];
+  warnings: string[];
+}
+
+export interface EditableImportRow {
+  id: string;
+  slNo: number;
+  date: string; // strictly DD/MM/YYYY
+  rawDate: Date;
+  description: string;
+  category: string;
+  debit: number;
+  credit: number;
+  paymentMode: string;
+  bankOrCash: "Bank" | "Cash" | "N/A";
+  partyName: string;
+  invoiceOrderId: string;
+  gstApplicable: boolean;
+  gstAmount: number;
+  tdsTcsAmount: number;
+  balance: number; // dynamically computed running balance
+  remarks: string;
+  billAvailable: boolean;
+  isModified?: boolean;
+  isNew?: boolean;
+  isValid: boolean;
+  fieldErrors: Record<string, string>;
   warnings: string[];
 }
 

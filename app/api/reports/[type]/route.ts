@@ -4,7 +4,13 @@ import {
   getGSTReport,
   getCashFlowReport,
   getEcommerceAnalyticsReport,
+  getSalesReport,
+  getPurchasesReport,
+  getExpensesReport,
+  getInventoryReport,
 } from "@/lib/services/reportService";
+import { DateRangePreset } from "@/lib/services/dashboardService";
+import { AccountType } from "@/lib/models/Transaction";
 
 export async function GET(
   req: Request,
@@ -14,12 +20,14 @@ export async function GET(
     const { type } = await params;
     const { searchParams } = new URL(req.url);
 
-    const preset = (searchParams.get("preset") as any) || "THIS_MONTH";
+    const preset = (searchParams.get("preset") as DateRangePreset) || "THIS_MONTH";
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
-    const accountType = (searchParams.get("accountType") as any) || "ALL";
+    const accountType = (searchParams.get("accountType") as AccountType | "ALL") || "ALL";
+    const category = searchParams.get("category") || undefined;
+    const platform = searchParams.get("platform") || undefined;
 
-    const filter = { preset, startDate, endDate, accountType };
+    const filter = { preset, startDate, endDate, accountType, category, platform };
 
     switch (type.toLowerCase()) {
       case "pnl":
@@ -39,16 +47,33 @@ export async function GET(
         const report = await getEcommerceAnalyticsReport(filter);
         return NextResponse.json(report);
       }
+      case "sales": {
+        const report = await getSalesReport(filter);
+        return NextResponse.json(report);
+      }
+      case "purchases": {
+        const report = await getPurchasesReport(filter);
+        return NextResponse.json(report);
+      }
+      case "expenses": {
+        const report = await getExpensesReport(filter);
+        return NextResponse.json(report);
+      }
+      case "inventory": {
+        const report = await getInventoryReport();
+        return NextResponse.json(report);
+      }
       default:
         return NextResponse.json(
           { error: `Unknown report type: ${type}` },
           { status: 400 }
         );
     }
-  } catch (error: any) {
-    console.error("Report error:", error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to generate report";
+    console.error("Report error:", message);
     return NextResponse.json(
-      { error: error.message || "Failed to generate report" },
+      { error: message },
       { status: 500 }
     );
   }

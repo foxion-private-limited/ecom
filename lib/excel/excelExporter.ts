@@ -3,7 +3,7 @@ import { formatIndianDate } from "@/lib/utils";
 import { EXCEL_COLUMNS } from "./types";
 
 export interface TransactionExportItem {
-  _id?: any;
+  _id?: string | unknown;
   date: Date | string;
   description: string;
   category: string;

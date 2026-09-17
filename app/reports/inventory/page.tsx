@@ -1,12 +1,232 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Button, Card, Badge } from "@/lib/ui";
+import {
+  Package,
+  ArrowLeft,
+  RefreshCw,
+  Download,
+  AlertTriangle,
+  Layers,
+} from "lucide-react";
+import { formatINR } from "@/lib/utils";
+import { toast } from "sonner";
 
-export default function RedirectInventory() {
-  const router = useRouter();
+export default function InventoryReportPage() {
+  const [data, setData] = useState<{
+    kpis: {
+      totalProducts: number;
+      totalValuation: number;
+      totalStockUnits: number;
+      lowStockCount: number;
+      criticalCount: number;
+    };
+    rows: Array<{
+      id: string;
+      name: string;
+      sku: string;
+      category: string;
+      purchasePrice: number;
+      sellingPrice: number;
+      currentStock: number;
+      threshold: number;
+      valuation: number;
+      status: "GOOD" | "LOW" | "CRITICAL" | "OUT";
+    }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchReport = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/reports/inventory");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load inventory report");
+      setData(json);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error loading report";
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    router.replace("/inventory/stock");
-  }, [router]);
-  return null;
+    fetchReport();
+  }, [fetchReport]);
+
+  const kpis = data?.kpis || {
+    totalProducts: 0,
+    totalValuation: 0,
+    totalStockUnits: 0,
+    lowStockCount: 0,
+    criticalCount: 0,
+  };
+
+  return (
+    <AppLayout>
+      <div className="space-y-6 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/reports"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                Inventory Valuation & Stock Status Report
+              </h1>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Current stock-on-hand valuation, holding cost & replenishment thresholds
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link href="/inventory/products">
+              <Button variant="outline" size="sm">
+                Manage Products
+              </Button>
+            </Link>
+            <Button variant="secondary" size="sm" onClick={fetchReport}>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
+            </Button>
+          </div>
+        </div>
+
+        {/* KPI Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Card className="p-4 bg-slate-900/80 border-slate-800">
+            <span className="text-[11px] text-slate-400 uppercase tracking-wider block">
+              Total Inventory Valuation
+            </span>
+            <p className="text-xl font-bold text-cyan-400 mt-1 font-mono">
+              {formatINR(kpis.totalValuation)}
+            </p>
+            <span className="text-[10px] text-slate-500 mt-0.5 block">At purchase cost</span>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/80 border-slate-800">
+            <span className="text-[11px] text-slate-400 uppercase tracking-wider block">
+              Total Stock Units
+            </span>
+            <p className="text-xl font-bold text-white mt-1">
+              {kpis.totalStockUnits} Units
+            </p>
+            <span className="text-[10px] text-slate-500 mt-0.5 block">Across {kpis.totalProducts} catalog products</span>
+          </Card>
+
+          <Card className="p-4 bg-amber-950/20 border-amber-800/50">
+            <span className="text-[11px] text-amber-400 uppercase tracking-wider block flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" /> Low Stock Items
+            </span>
+            <p className="text-xl font-bold text-amber-400 mt-1">
+              {kpis.lowStockCount} Products
+            </p>
+            <span className="text-[10px] text-amber-500/80 mt-0.5 block">At or below reorder limit</span>
+          </Card>
+
+          <Card className="p-4 bg-rose-950/20 border-rose-800/50">
+            <span className="text-[11px] text-rose-400 uppercase tracking-wider block flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" /> Critical / Stockout
+            </span>
+            <p className="text-xl font-bold text-rose-400 mt-1">
+              {kpis.criticalCount} Products
+            </p>
+            <span className="text-[10px] text-rose-500/80 mt-0.5 block">Immediate PO required</span>
+          </Card>
+        </div>
+
+        {/* Data Table */}
+        <Card className="overflow-hidden border-slate-800 bg-slate-900/80">
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="sticky top-0 bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider z-10 border-b border-slate-800">
+                <tr>
+                  <th className="py-3 px-3">Product Name</th>
+                  <th className="py-3 px-3">SKU</th>
+                  <th className="py-3 px-3">Category</th>
+                  <th className="py-3 px-3 text-right">Current Stock</th>
+                  <th className="py-3 px-3 text-right">Reorder Threshold</th>
+                  <th className="py-3 px-3 text-right">Unit Cost (₹)</th>
+                  <th className="py-3 px-3 text-right">Selling Price (₹)</th>
+                  <th className="py-3 px-3 text-right">Total Valuation (₹)</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-400" />
+                      Valuating inventory...
+                    </td>
+                  </tr>
+                ) : !data?.rows || data.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-400">
+                      No products found in inventory.
+                    </td>
+                  </tr>
+                ) : (
+                  data.rows.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-800/40">
+                      <td className="py-2.5 px-3 font-medium text-white max-w-xs truncate">
+                        <Link href={`/inventory/products/${row.id}`} className="hover:text-blue-400 hover:underline">
+                          {row.name}
+                        </Link>
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-slate-300 whitespace-nowrap">
+                        {row.sku}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {row.category}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                        {row.currentStock} Units
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-400">
+                        {row.threshold}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-300">
+                        {formatINR(row.purchasePrice)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-emerald-400">
+                        {formatINR(row.sellingPrice)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-cyan-400">
+                        {formatINR(row.valuation)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <Badge
+                          variant={
+                            row.status === "GOOD"
+                              ? "success"
+                              : row.status === "LOW"
+                              ? "warning"
+                              : "danger"
+                          }
+                          className="text-[9px]"
+                        >
+                          {row.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </AppLayout>
+  );
 }

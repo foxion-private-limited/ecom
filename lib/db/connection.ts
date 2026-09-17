@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 interface MongooseCache {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
-  memoryServer?: any;
+  memoryServer?: unknown;
 }
 
 declare global {
@@ -36,15 +36,17 @@ export async function connectDB(): Promise<typeof mongoose> {
         const m = await mongoose.connect(uri, opts);
         console.log(`[DB Connection] Successfully connected to database '${m.connection.db?.databaseName}'`);
         return m;
-      } catch (primaryErr: any) {
-        console.error("[DB Connection] Primary MongoDB connection failed:", primaryErr.message);
-        if (process.env.NODE_ENV !== "production" && !process.env.MONGODB_URI) {
+      } catch (primaryErr: unknown) {
+        const errMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        console.error("[DB Connection] Primary MongoDB connection failed:", errMsg);
+        if (process.env.NODE_ENV !== "production") {
           try {
             const { MongoMemoryServer } = await import("mongodb-memory-server");
             if (!cached!.memoryServer) {
               cached!.memoryServer = await MongoMemoryServer.create();
             }
-            const memUri = cached!.memoryServer.getUri();
+            const mem = cached!.memoryServer as InstanceType<typeof MongoMemoryServer>;
+            const memUri = mem.getUri();
             console.log(`[DB Connection] Falling back to MongoMemoryServer: ${memUri}`);
             const m = await mongoose.connect(memUri, { bufferCommands: false, dbName: "ecom" });
             return m;

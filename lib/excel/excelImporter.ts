@@ -3,6 +3,7 @@ import { Transaction, AccountType } from "@/lib/models/Transaction";
 import { ImportBatch } from "@/lib/models/ImportBatch";
 import { Category } from "@/lib/models/Category";
 import { ExcelAccountingRow, ExcelImportResult } from "./types";
+import { parseIndianDate } from "@/lib/utils";
 
 export async function importAccountingBatch(
   validRows: ExcelAccountingRow[],
@@ -14,11 +15,11 @@ export async function importAccountingBatch(
 
   const batchId = `BATCH-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   let importedCount = 0;
-  let skippedCount = 0;
+  const skippedCount = 0;
   const errors: string[] = [];
 
   try {
-    // 1. Ensure unique categories exist
+    // 1. Ensure unique categories exist in DB
     const categoryNames = Array.from(
       new Set(validRows.map((r) => r.category).filter(Boolean))
     );
@@ -39,37 +40,24 @@ export async function importAccountingBatch(
     // 2. Prepare transaction documents
     const txDocs = [];
     for (const row of validRows) {
-      // Check for exact duplicate within same batch or recent transactions to prevent duplicate import
-      const isDuplicate = await Transaction.findOne({
-        accountType,
-        date: new Date(row.date),
-        description: row.description,
-        debit: row.debit,
-        credit: row.credit,
-        invoiceOrderId: row.invoiceOrderId || undefined,
-      });
-
-      if (isDuplicate) {
-        skippedCount++;
-        continue;
-      }
+      const parsedDate = parseIndianDate(row.date) || new Date();
 
       txDocs.push({
         accountType,
-        date: new Date(row.date),
+        date: parsedDate,
         description: row.description,
         category: row.category,
-        debit: row.debit,
-        credit: row.credit,
-        paymentMode: row.paymentMode,
-        bankOrCash: row.bankOrCash,
+        debit: Number(row.debit) || 0,
+        credit: Number(row.credit) || 0,
+        paymentMode: row.paymentMode || "Bank Transfer",
+        bankOrCash: row.bankOrCash || "Bank",
         partyName: row.partyName,
         invoiceOrderId: row.invoiceOrderId,
-        gstApplicable: row.gstApplicable,
-        gstAmount: row.gstAmount,
-        tdsTcsAmount: row.tdsTcsAmount,
+        gstApplicable: !!row.gstApplicable,
+        gstAmount: Number(row.gstAmount) || 0,
+        tdsTcsAmount: Number(row.tdsTcsAmount) || 0,
         remarks: row.remarks,
-        billAvailable: row.billAvailable,
+        billAvailable: !!row.billAvailable,
         source: "EXCEL_IMPORT",
         importBatchId: batchId,
         createdBy: userEmail,
@@ -86,7 +74,7 @@ export async function importAccountingBatch(
       batchId,
       filename,
       accountType,
-      totalRows: validRows.length + skippedCount,
+      totalRows: validRows.length,
       validRows: validRows.length,
       importedRows: importedCount,
       warningCount: skippedCount,
@@ -102,9 +90,10 @@ export async function importAccountingBatch(
       skippedCount,
       errors,
     };
-  } catch (err: any) {
-    console.error("[Excel Importer] Batch import failed:", err);
-    errors.push(err.message || "Failed to save imported rows");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to save imported rows";
+    console.error("[Excel Importer] Batch import failed:", message);
+    errors.push(message);
     return {
       success: false,
       batchId,
