@@ -67,11 +67,9 @@ function calculateRunningBalances(rows: EditableImportRow[]): EditableImportRow[
 
 function ExcelImportContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const initialType = searchParams.get("type") === "ECOMMERCE" ? "ECOMMERCE" : "MAIN";
 
-  // Navigation and Account Context
-  const [accountType, setAccountType] = useState<"MAIN" | "ECOMMERCE">(initialType);
+  // Navigation and Account Context (Single Main Accounts System)
+  const accountType = "MAIN";
 
   // Workflow steps: 1. UPLOAD, 2. EDIT_PREVIEW, 3. SUCCESS
   const [currentStep, setCurrentStep] = useState<"UPLOAD" | "PREVIEW" | "SUCCESS">("UPLOAD");
@@ -465,34 +463,14 @@ function ExcelImportContent() {
                   Import Accounts from Excel
                 </h1>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Upload `.xlsx` or `.xls` spreadsheet with interactive review & editing
+                  Upload `.xlsx` or `.xls` spreadsheet with interactive review & editing into Foxion Main Accounts
                 </p>
               </div>
             </div>
 
-            {/* Account Selector */}
-            <div className="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-lg">
-              <button
-                onClick={() => setAccountType("MAIN")}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  accountType === "MAIN"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Main Accounts
-              </button>
-              <button
-                onClick={() => setAccountType("ECOMMERCE")}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  accountType === "ECOMMERCE"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Ecommerce Accounts
-              </button>
-            </div>
+            <Badge variant="info" className="text-xs px-3 py-1">
+              Main Accounts Ledger
+            </Badge>
           </div>
 
           <Card className="border-slate-800 bg-slate-900/60 p-8 text-center">
@@ -553,7 +531,7 @@ function ExcelImportContent() {
                     Editable Import Preview
                   </h1>
                   <Badge variant="info" className="text-[10px]">
-                    {accountType === "MAIN" ? "Main Accounts" : "Ecommerce Accounts"}
+                    Main Accounts
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -1230,7 +1208,7 @@ function ExcelImportContent() {
             <div className="flex justify-between text-slate-400">
               <span>Destination Account:</span>
               <span className="font-semibold text-white">
-                {successInfo.accountType === "MAIN" ? "Main Accounts" : "Ecommerce Accounts"}
+                Main Accounts
               </span>
             </div>
             <div className="flex justify-between text-slate-400">
@@ -1256,13 +1234,7 @@ function ExcelImportContent() {
 
             <Button
               variant="primary"
-              onClick={() =>
-                router.push(
-                  successInfo.accountType === "MAIN"
-                    ? "/accounts/main"
-                    : "/accounts/ecommerce"
-                )
-              }
+              onClick={() => router.push("/accounts/main")}
             >
               View Accounts <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
             </Button>
@@ -1289,7 +1261,7 @@ function ExcelImportContent() {
             <div className="flex justify-between">
               <span className="text-slate-400">Account Book:</span>
               <span className="font-semibold text-blue-400">
-                {accountType === "MAIN" ? "Main Accounts" : "Ecommerce Accounts"}
+                Main Accounts
               </span>
             </div>
             <div className="flex justify-between">

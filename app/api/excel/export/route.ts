@@ -14,11 +14,7 @@ export async function GET(req: Request) {
 
     await connectDB();
 
-    const query: any = { isArchived: { $ne: true } };
-
-    if (accountType !== "ALL") {
-      query.accountType = accountType;
-    }
+    const query: any = { isArchived: { $ne: true }, accountType: "MAIN" };
 
     if (startDate || endDate) {
       query.date = {};
@@ -38,11 +34,11 @@ export async function GET(req: Request) {
       .sort({ date: 1, createdAt: 1 })
       .lean();
 
-    const title = `Foxion_${accountType}_Accounts`;
+    const title = "Foxion_Main_Accounts";
     const buffer = generateAccountingExcel(transactions as any, title);
 
     const nowStr = new Date().toISOString().slice(0, 10);
-    const filename = `Foxion_${accountType}_Accounts_${nowStr}.xlsx`;
+    const filename = `Foxion_Main_Accounts_${nowStr}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

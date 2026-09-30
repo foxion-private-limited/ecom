@@ -41,7 +41,6 @@ import { toast } from "sonner";
 
 export default function DashboardPage() {
   const [preset, setPreset] = useState("THIS_MONTH");
-  const [accountType, setAccountType] = useState("ALL");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [data, setData] = useState<any>(null);
@@ -58,7 +57,6 @@ export default function DashboardPage() {
     try {
       const params = new URLSearchParams();
       params.set("preset", preset);
-      params.set("accountType", accountType);
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
 
@@ -70,7 +68,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [preset, accountType, startDate, endDate]);
+  }, [preset, startDate, endDate]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -87,18 +85,19 @@ export default function DashboardPage() {
     netProfitChange: 0,
     bankBalance: 0,
     cashBalance: 0,
+    totalLiquidCapital: 0,
     inventoryValue: 0,
     totalStockUnits: 0,
   };
 
   const handleExportAccounts = () => {
-    window.open(`/api/excel/export?accountType=${accountType}`, "_blank");
+    window.open(`/api/excel/export`, "_blank");
   };
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Top Control Bar: Date Range & Account Selector */}
+        {/* Top Control Bar: Date Range Filter */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/80 border border-slate-800 backdrop-blur-md">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">
@@ -126,36 +125,6 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Account:
-            </span>
-            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-              <button
-                onClick={() => setAccountType("ALL")}
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  accountType === "ALL" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                All Accounts
-              </button>
-              <button
-                onClick={() => setAccountType("MAIN")}
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  accountType === "MAIN" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Main
-              </button>
-              <button
-                onClick={() => setAccountType("ECOMMERCE")}
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  accountType === "ECOMMERCE" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Ecommerce
-              </button>
-            </div>
-
             <Button
               variant="secondary"
               size="sm"
@@ -192,6 +161,85 @@ export default function DashboardPage() {
           <Button size="sm" variant="outline" onClick={handleExportAccounts}>
             <Download className="w-3.5 h-3.5 mr-1 text-blue-400" /> Export Accounts
           </Button>
+        </div>
+
+        {/* LIQUID CAPITAL & CASHFLOW */}
+        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-cyan-400" />
+                Liquid Capital & Available Balances
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Live balances in Foxion Main Accounts across Bank and Cash in hand
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                href="/accounts/main"
+                className="text-cyan-400 hover:underline flex items-center gap-1 font-medium"
+              >
+                View Main Ledger →
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+            {/* 1. Bank Balance */}
+            <div className="p-3.5 rounded-lg bg-slate-950 border border-cyan-900/60 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">
+                  Bank Account
+                </span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                  Bank Ledger
+                </span>
+              </div>
+              <p className="text-xl font-bold font-mono text-cyan-300 my-2">
+                {formatINR(kpis.bankBalance)}
+              </p>
+              <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-800/80">
+                Operating Bank Balance
+              </div>
+            </div>
+
+            {/* 2. Cash Balance */}
+            <div className="p-3.5 rounded-lg bg-slate-950 border border-amber-900/60 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">
+                  Cash in Hand
+                </span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                  Petty Cash
+                </span>
+              </div>
+              <p className="text-xl font-bold font-mono text-amber-400 my-2">
+                {formatINR(kpis.cashBalance)}
+              </p>
+              <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-800/80">
+                Cash Drawer & Petty Expenses
+              </div>
+            </div>
+
+            {/* 3. Total Liquid Capital */}
+            <div className="p-3.5 rounded-lg bg-slate-950 border border-emerald-900/60 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">
+                  Total Liquid Capital
+                </span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                  Bank + Cash
+                </span>
+              </div>
+              <p className="text-xl font-bold font-mono text-emerald-300 my-2">
+                {formatINR(kpis.totalLiquidCapital)}
+              </p>
+              <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-800/80">
+                Total Available Operating Capital
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* 8 KPI Cards */}
@@ -307,8 +355,8 @@ export default function DashboardPage() {
           {/* Card 5: Bank Balance */}
           <Card className="p-4 bg-slate-900/80 border-slate-800">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Bank Account
+              <span className="text-[11px] font-semibold text-cyan-300 uppercase tracking-wider">
+                Bank Balance
               </span>
               <div className="p-1.5 rounded-lg bg-cyan-950/60 text-cyan-400">
                 <Landmark className="w-4 h-4" />
@@ -323,7 +371,7 @@ export default function DashboardPage() {
           {/* Card 6: Cash in Hand */}
           <Card className="p-4 bg-slate-900/80 border-slate-800">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              <span className="text-[11px] font-semibold text-amber-300 uppercase tracking-wider">
                 Cash in Hand
               </span>
               <div className="p-1.5 rounded-lg bg-amber-950/60 text-amber-400">

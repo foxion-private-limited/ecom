@@ -32,13 +32,13 @@ import { AccountType } from "@/lib/models/Transaction";
 import { toast } from "sonner";
 
 export function AccountsLedgerView({
-  accountType,
-  title,
-  subtitle,
+  accountType = "MAIN",
+  title = "Main Accounts Ledger",
+  subtitle = "Single general accounting book for purchases, sales, expenses, bank & cash transactions",
 }: {
-  accountType: AccountType;
-  title: string;
-  subtitle: string;
+  accountType?: AccountType | string;
+  title?: string;
+  subtitle?: string;
 }) {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [summary, setSummary] = useState({
@@ -162,7 +162,7 @@ export function AccountsLedgerView({
             Add Transaction
           </Button>
 
-          <Link href={`/accounts/import?type=${accountType}`}>
+          <Link href="/accounts/import">
             <Button variant="secondary">
               <FileSpreadsheet className="w-4 h-4 mr-1.5 text-emerald-400" />
               Import Excel

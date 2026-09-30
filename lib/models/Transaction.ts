@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
-export type AccountType = "MAIN" | "ECOMMERCE";
+export type AccountType = "MAIN";
 
 export interface ITransaction extends Document {
   accountType: AccountType;
@@ -32,8 +32,9 @@ const TransactionSchema = new Schema<ITransaction>(
   {
     accountType: {
       type: String,
-      enum: ["MAIN", "ECOMMERCE"],
+      enum: ["MAIN"],
       required: true,
+      default: "MAIN",
       index: true,
     },
     date: { type: Date, required: true, default: Date.now, index: true },
@@ -79,9 +80,8 @@ const TransactionSchema = new Schema<ITransaction>(
 
 // Compound indexes for high performance querying
 TransactionSchema.index({ accountType: 1, date: -1, isArchived: 1 });
-TransactionSchema.index({ accountType: 1, category: 1 });
-TransactionSchema.index({ accountType: 1, bankOrCash: 1 });
-TransactionSchema.index({ invoiceOrderId: 1, accountType: 1 });
+TransactionSchema.index({ bankOrCash: 1, date: -1, isArchived: 1 });
+TransactionSchema.index({ category: 1, date: -1 });
 
 export const Transaction: Model<ITransaction> =
   mongoose.models.Transaction ||

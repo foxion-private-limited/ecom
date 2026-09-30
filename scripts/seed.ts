@@ -41,7 +41,7 @@ export async function runSeed(options: SeedOptions = { clearDummyData: true }) {
   const adminEmail = process.env.ADMIN_EMAIL || "admin@foxion.in";
   let admin = await User.findOne({ email: adminEmail });
   if (!admin) {
-    const password = process.env.ADMIN_PASSWORD || "admin123456";
+    const password = process.env.ADMIN_PASSWORD || "Ecom_Foxion_Password@2026";
     const passwordHash = await hashPassword(password);
     admin = await User.create({
       name: "Foxion Admin",
@@ -557,9 +557,9 @@ export async function runSeed(options: SeedOptions = { clearDummyData: true }) {
       billAvailable: true,
       createdBy: "admin@foxion.in",
     },
-    // Ecommerce Accounts
+    // Marketplace & Logistics Transactions (now all in Main Accounts)
     {
-      accountType: "ECOMMERCE" as const,
+      accountType: "MAIN" as const,
       date: new Date("2026-09-06T10:00:00.000Z"),
       description: "Amazon Order Sales Batch #AMZ-89101",
       category: "Amazon Sales",
@@ -577,7 +577,7 @@ export async function runSeed(options: SeedOptions = { clearDummyData: true }) {
       createdBy: "admin@foxion.in",
     },
     {
-      accountType: "ECOMMERCE" as const,
+      accountType: "MAIN" as const,
       date: new Date("2026-09-09T10:00:00.000Z"),
       description: "Meesho Order Sales Batch #MSH-44122",
       category: "Meesho Sales",
@@ -595,7 +595,7 @@ export async function runSeed(options: SeedOptions = { clearDummyData: true }) {
       createdBy: "admin@foxion.in",
     },
     {
-      accountType: "ECOMMERCE" as const,
+      accountType: "MAIN" as const,
       date: new Date("2026-09-13T10:00:00.000Z"),
       description: "Flipkart Order Sales Batch #FLP-33091",
       category: "Flipkart Sales",
@@ -613,7 +613,7 @@ export async function runSeed(options: SeedOptions = { clearDummyData: true }) {
       createdBy: "admin@foxion.in",
     },
     {
-      accountType: "ECOMMERCE" as const,
+      accountType: "MAIN" as const,
       date: new Date("2026-09-14T17:00:00.000Z"),
       description: "Courier Shipping & Packaging Charges",
       category: "Logistics & Packaging",
@@ -637,7 +637,7 @@ export async function runSeed(options: SeedOptions = { clearDummyData: true }) {
 
   console.log("====================================================");
   console.log("Foxion Business Suite seed initialization COMPLETED!");
-  console.log("Admin Login: admin@foxion.in / admin123456");
+  console.log("Admin Login: admin@foxion.in / Ecom_Foxion_Password@2026");
   console.log("Products: Everyday Rechargeable Gas Lighter, Bluetooth Speaker, Kitchen Chopper");
   console.log("====================================================");
 

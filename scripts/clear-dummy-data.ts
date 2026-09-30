@@ -42,7 +42,7 @@ export async function clearAllDummyData() {
   const adminEmail = process.env.ADMIN_EMAIL || "admin@foxion.in";
   let admin = await User.findOne({ email: adminEmail });
   if (!admin) {
-    const password = process.env.ADMIN_PASSWORD || "admin123456";
+    const password = process.env.ADMIN_PASSWORD || "Ecom_Foxion_Password@2026";
     const passwordHash = await hashPassword(password);
     admin = await User.create({
       name: "Foxion Admin",

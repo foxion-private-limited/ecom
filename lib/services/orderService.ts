@@ -142,10 +142,10 @@ export async function createOrder(
     });
   }
 
-  // 5. Create Ecommerce Accounting Transaction (Credit revenue)
+  // 5. Create Accounting Transaction in MAIN (Credit revenue)
   const isPaid = (data.paymentStatus || "PAID") === "PAID";
   const tx = await Transaction.create({
-    accountType: "ECOMMERCE",
+    accountType: "MAIN",
     date: new Date(data.date),
     description: `Ecommerce Sale: ${order.platform} Order #${order.orderId} (${orderItems.map((i) => `${i.productName} ×${i.quantity}`).join(", ")})`,
     category: `${order.platform} Sales`,
@@ -215,10 +215,10 @@ export async function processOrderReturn(
   order.orderStatus = "RETURNED";
   order.returnedAt = new Date();
 
-  // Create Accounting refund adjustment transaction (Debit)
+  // Create Accounting refund adjustment transaction in MAIN (Debit)
   if (totalRefundAmount > 0) {
     const refundTx = await Transaction.create({
-      accountType: "ECOMMERCE",
+      accountType: "MAIN",
       date: new Date(),
       description: `Return & Refund: Order #${order.orderId} (${order.platform})`,
       category: "Sales Returns / Refunds",

@@ -14,16 +14,11 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!accountType || !["MAIN", "ECOMMERCE"].includes(accountType)) {
-      return NextResponse.json(
-        { error: "Valid accountType ('MAIN' or 'ECOMMERCE') is required" },
-        { status: 400 }
-      );
-    }
+    const targetAccountType = "MAIN";
 
     const result = await importAccountingBatch(
       rows,
-      accountType,
+      targetAccountType,
       filename || "import.xlsx",
       user?.email || "System"
     );

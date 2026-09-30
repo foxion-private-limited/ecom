@@ -42,7 +42,6 @@ const navItems: NavItem[] = [
     icon: BookOpen,
     children: [
       { title: "Main Accounts", href: "/accounts/main", icon: BookOpen },
-      { title: "Ecommerce Accounts", href: "/accounts/ecommerce", icon: Store },
       { title: "Import Excel", href: "/accounts/import", icon: FileSpreadsheet },
     ],
   },

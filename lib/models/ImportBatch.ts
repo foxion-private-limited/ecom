@@ -3,7 +3,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 export interface IImportBatch extends Document {
   batchId: string;
   filename: string;
-  accountType: "MAIN" | "ECOMMERCE";
+  accountType: "MAIN";
   totalRows: number;
   validRows: number;
   importedRows: number;
@@ -21,8 +21,9 @@ const ImportBatchSchema = new Schema<IImportBatch>(
     filename: { type: String, required: true },
     accountType: {
       type: String,
-      enum: ["MAIN", "ECOMMERCE"],
+      enum: ["MAIN"],
       required: true,
+      default: "MAIN",
       index: true,
     },
     totalRows: { type: Number, required: true },

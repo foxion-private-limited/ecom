@@ -8,13 +8,10 @@ export async function GET(req: Request) {
     const preset = (searchParams.get("preset") as any) || "THIS_MONTH";
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
-    const accountType = (searchParams.get("accountType") as any) || "ALL";
-
     const data = await getDashboardData({
       preset,
       startDate,
       endDate,
-      accountType,
     });
 
     return NextResponse.json(data);

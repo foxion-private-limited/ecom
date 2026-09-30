@@ -71,7 +71,7 @@ export default function PurchasesReportPage() {
   };
 
   const handleExport = () => {
-    window.open(`/api/excel/export?accountType=MAIN&category=Purchases%20/%20Inventory%20Inward`, "_blank");
+    window.open(`/api/excel/export?category=Purchases%20/%20Inventory%20Inward`, "_blank");
   };
 
   return (

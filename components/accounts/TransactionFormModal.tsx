@@ -2,14 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { Modal, Button, Input, Select } from "@/lib/ui";
-import { AccountType } from "@/lib/models/Transaction";
 import { toast } from "sonner";
 
 interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  defaultAccountType?: AccountType;
+  defaultAccountType?: string;
   initialData?: any;
 }
 
@@ -17,10 +16,9 @@ export function TransactionFormModal({
   isOpen,
   onClose,
   onSuccess,
-  defaultAccountType = "MAIN",
   initialData,
 }: TransactionModalProps) {
-  const [accountType, setAccountType] = useState<AccountType>(defaultAccountType);
+  const accountType = "MAIN";
   const [entryType, setEntryType] = useState<"DEBIT" | "CREDIT">("DEBIT");
   const [amount, setAmount] = useState<string>("");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -39,7 +37,6 @@ export function TransactionFormModal({
 
   useEffect(() => {
     if (isOpen) {
-      setAccountType(initialData?.accountType || defaultAccountType);
       if (initialData) {
         setEntryType(initialData.debit > 0 ? "DEBIT" : "CREDIT");
         setAmount(String(initialData.debit > 0 ? initialData.debit : initialData.credit));
@@ -81,7 +78,7 @@ export function TransactionFormModal({
         })
         .catch(() => {});
     }
-  }, [isOpen, initialData, defaultAccountType]);
+  }, [isOpen, initialData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,47 +152,16 @@ export function TransactionFormModal({
       isOpen={isOpen}
       onClose={onClose}
       title={initialData ? "Edit Transaction" : "New Transaction Entry"}
-      description={`Record an entry in ${accountType === "MAIN" ? "Main Company Accounts" : "Ecommerce Accounts"}`}
+      description="Record an entry in Foxion Main Accounts ledger"
       maxWidth="2xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Account and Entry type toggle */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Account Book
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setAccountType("MAIN")}
-                className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
-                  accountType === "MAIN"
-                    ? "bg-blue-600 border-blue-500 text-white"
-                    : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                }`}
-              >
-                Main Accounts
-              </button>
-              <button
-                type="button"
-                onClick={() => setAccountType("ECOMMERCE")}
-                className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
-                  accountType === "ECOMMERCE"
-                    ? "bg-blue-600 border-blue-500 text-white"
-                    : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                }`}
-              >
-                Ecommerce Accounts
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Transaction Type
-            </label>
-            <div className="grid grid-cols-2 gap-2">
+        {/* Entry type toggle */}
+        <div>
+          <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            Transaction Type
+          </label>
+          <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setEntryType("DEBIT")}
@@ -220,7 +186,6 @@ export function TransactionFormModal({
               </button>
             </div>
           </div>
-        </div>
 
         {/* Date and Amount */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

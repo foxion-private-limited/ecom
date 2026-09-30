@@ -1,5 +1,5 @@
 import { connectDB } from "@/lib/db/connection";
-import { Transaction, AccountType } from "@/lib/models/Transaction";
+import { Transaction } from "@/lib/models/Transaction";
 import { Order } from "@/lib/models/Order";
 import { Purchase } from "@/lib/models/Purchase";
 import { Product } from "@/lib/models/Product";
@@ -9,7 +9,6 @@ export interface ReportFilterOptions {
   preset?: DateRangePreset;
   startDate?: string | Date;
   endDate?: string | Date;
-  accountType?: AccountType | "ALL";
   category?: string;
   platform?: string;
   partyName?: string;
@@ -19,12 +18,11 @@ export async function getProfitAndLossReport(options: ReportFilterOptions = {}) 
   await connectDB();
   const { start, end } = getDateRange(options.preset, options.startDate, options.endDate);
 
-  // Revenue from Ecommerce transactions + Orders
-  const [ecommerceRevenueAgg, mainDebitsAgg, ordersAgg] = await Promise.all([
+  // Revenue from transactions + Orders
+  const [revenueAgg, operatingDebitsAgg, ordersAgg] = await Promise.all([
     Transaction.aggregate([
       {
         $match: {
-          accountType: "ECOMMERCE",
           isArchived: { $ne: true },
           date: { $gte: start, $lte: end },
           credit: { $gt: 0 },
@@ -38,11 +36,10 @@ export async function getProfitAndLossReport(options: ReportFilterOptions = {}) 
       },
     ]),
 
-    // Operating expenses from Main account
+    // Operating expenses from accounts
     Transaction.aggregate([
       {
         $match: {
-          accountType: "MAIN",
           isArchived: { $ne: true },
           date: { $gte: start, $lte: end },
           debit: { $gt: 0 },
@@ -92,12 +89,12 @@ export async function getProfitAndLossReport(options: ReportFilterOptions = {}) 
   const totalSalesRevenue =
     orderStats.grossSales > 0
       ? orderStats.grossSales
-      : ecommerceRevenueAgg.reduce((acc, curr) => acc + curr.total, 0);
+      : revenueAgg.reduce((acc, curr) => acc + curr.total, 0);
 
   const directCosts = orderStats.cogs + orderStats.marketplaceFees + orderStats.shippingFees + orderStats.packagingFees;
   const grossProfit = totalSalesRevenue - directCosts;
 
-  const operatingExpenses = mainDebitsAgg.map((item) => ({
+  const operatingExpenses = operatingDebitsAgg.map((item) => ({
     category: item._id,
     amount: item.total,
   }));
@@ -110,7 +107,7 @@ export async function getProfitAndLossReport(options: ReportFilterOptions = {}) 
     period: { start, end },
     revenue: {
       totalSalesRevenue,
-      breakdown: ecommerceRevenueAgg,
+      breakdown: revenueAgg,
     },
     cogs: {
       productCost: orderStats.cogs,

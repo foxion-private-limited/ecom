@@ -1,8 +1,9 @@
 import { connectDB } from "@/lib/db/connection";
-import { Transaction, AccountType } from "@/lib/models/Transaction";
+import { Transaction } from "@/lib/models/Transaction";
 import { Product } from "@/lib/models/Product";
 import { Order } from "@/lib/models/Order";
 import { Category } from "@/lib/models/Category";
+import { getLiquidBalances } from "@/lib/services/transactionService";
 import { subDays, subMonths, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 
 export type DateRangePreset =
@@ -17,7 +18,6 @@ export interface DashboardFilterOptions {
   preset?: DateRangePreset;
   startDate?: string | Date;
   endDate?: string | Date;
-  accountType?: AccountType | "ALL";
 }
 
 export function getDateRange(
@@ -70,7 +70,7 @@ export function getDateRange(
 export async function getDashboardData(options: DashboardFilterOptions = {}) {
   await connectDB();
 
-  const { preset = "THIS_MONTH", startDate, endDate, accountType = "ALL" } = options;
+  const { preset = "THIS_MONTH", startDate, endDate } = options;
   const { start, end, prevStart, prevEnd } = getDateRange(preset, startDate, endDate);
   const now = new Date();
 
@@ -79,24 +79,18 @@ export async function getDashboardData(options: DashboardFilterOptions = {}) {
     isArchived: { $ne: true },
     date: { $gte: start, $lte: end },
   };
-  if (accountType !== "ALL") {
-    currentTxMatch.accountType = accountType;
-  }
 
   // 2. Transactions match for previous period
   const prevTxMatch: any = {
     isArchived: { $ne: true },
     date: { $gte: prevStart, $lte: prevEnd },
   };
-  if (accountType !== "ALL") {
-    prevTxMatch.accountType = accountType;
-  }
 
   // Execute aggregations
   const [
     currentTxAgg,
     prevTxAgg,
-    allTimeBankCashAgg,
+    liquidBalances,
     ordersAgg,
     prevOrdersAgg,
     products,
@@ -131,17 +125,8 @@ export async function getDashboardData(options: DashboardFilterOptions = {}) {
       },
     ]),
 
-    // All-time Bank & Cash balances
-    Transaction.aggregate([
-      { $match: { isArchived: { $ne: true } } },
-      {
-        $group: {
-          _id: "$bankOrCash",
-          debit: { $sum: "$debit" },
-          credit: { $sum: "$credit" },
-        },
-      },
-    ]),
+    // All-time Liquid Balances (Bank & Cash)
+    getLiquidBalances(),
 
     // Orders in period (for COGS & platform details)
     Order.aggregate([
@@ -305,15 +290,9 @@ export async function getDashboardData(options: DashboardFilterOptions = {}) {
   const prevOrders = prevOrdersAgg[0] || { totalGrossProfit: 0, totalRevenue: 0 };
 
   // Bank & Cash Balances
-  let bankBalance = 0;
-  let cashBalance = 0;
-  for (const item of allTimeBankCashAgg) {
-    if (item._id === "Bank") {
-      bankBalance = (item.credit || 0) - (item.debit || 0);
-    } else if (item._id === "Cash") {
-      cashBalance = (item.credit || 0) - (item.debit || 0);
-    }
-  }
+  const bankBalance = liquidBalances.bankBalance;
+  const cashBalance = liquidBalances.cashBalance;
+  const totalLiquidCapital = liquidBalances.totalLiquidCapital;
 
   // Inventory value & stock units
   let totalStockUnits = 0;
@@ -427,6 +406,7 @@ export async function getDashboardData(options: DashboardFilterOptions = {}) {
       netProfitChange,
       bankBalance,
       cashBalance,
+      totalLiquidCapital,
       inventoryValue: totalInventoryValue,
       totalStockUnits,
     },

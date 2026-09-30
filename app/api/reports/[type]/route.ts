@@ -10,7 +10,6 @@ import {
   getInventoryReport,
 } from "@/lib/services/reportService";
 import { DateRangePreset } from "@/lib/services/dashboardService";
-import { AccountType } from "@/lib/models/Transaction";
 
 export async function GET(
   req: Request,
@@ -23,11 +22,10 @@ export async function GET(
     const preset = (searchParams.get("preset") as DateRangePreset) || "THIS_MONTH";
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
-    const accountType = (searchParams.get("accountType") as AccountType | "ALL") || "ALL";
     const category = searchParams.get("category") || undefined;
     const platform = searchParams.get("platform") || undefined;
 
-    const filter = { preset, startDate, endDate, accountType, category, platform };
+    const filter = { preset, startDate, endDate, category, platform };
 
     switch (type.toLowerCase()) {
       case "pnl":

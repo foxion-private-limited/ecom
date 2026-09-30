@@ -77,7 +77,7 @@ export default function SalesReportPage() {
   };
 
   const handleExport = () => {
-    window.open(`/api/excel/export?accountType=ECOMMERCE`, "_blank");
+    window.open(`/api/excel/export`, "_blank");
   };
 
   return (

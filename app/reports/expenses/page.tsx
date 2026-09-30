@@ -72,7 +72,7 @@ export default function ExpenseReportPage() {
   };
 
   const handleExport = () => {
-    window.open(`/api/excel/export?accountType=MAIN`, "_blank");
+    window.open(`/api/excel/export`, "_blank");
   };
 
   return (

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const transactionSchema = z
   .object({
-    accountType: z.enum(["MAIN", "ECOMMERCE"]),
+    accountType: z.enum(["MAIN"]).default("MAIN"),
     date: z.coerce.date(),
     description: z.string().min(1, "Description is required").trim(),
     category: z.string().min(1, "Category is required").trim(),

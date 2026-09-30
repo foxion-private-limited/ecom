@@ -7,7 +7,7 @@ import { parseIndianDate } from "@/lib/utils";
 
 export async function importAccountingBatch(
   validRows: ExcelAccountingRow[],
-  accountType: AccountType,
+  accountType: AccountType = "MAIN",
   filename: string,
   userEmail: string = "System"
 ): Promise<ExcelImportResult> {
@@ -31,7 +31,7 @@ export async function importAccountingBatch(
         await Category.create({
           name: catName.trim(),
           slug: catName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          type: accountType === "ECOMMERCE" ? "INCOME" : "EXPENSE",
+          type: "EXPENSE",
           isActive: true,
         });
       }

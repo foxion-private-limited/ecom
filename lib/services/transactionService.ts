@@ -1,10 +1,9 @@
 import { connectDB } from "@/lib/db/connection";
 import { Transaction, ITransaction, AccountType } from "@/lib/models/Transaction";
 import { Category } from "@/lib/models/Category";
-import mongoose from "mongoose";
 
 export interface TransactionFilterOptions {
-  accountType?: AccountType | "ALL";
+  accountType?: AccountType | string;
   startDate?: Date | string;
   endDate?: Date | string;
   category?: string;
@@ -16,6 +15,12 @@ export interface TransactionFilterOptions {
   limit?: number;
 }
 
+export interface LiquidBalances {
+  bankBalance: number;
+  cashBalance: number;
+  totalLiquidCapital: number;
+}
+
 export interface TransactionSummary {
   totalDebit: number;
   totalCredit: number;
@@ -23,6 +28,7 @@ export interface TransactionSummary {
   bankBalance: number;
   cashBalance: number;
   totalTransactions: number;
+  liquidBalances?: LiquidBalances;
 }
 
 export interface TransactionWithBalance extends ITransaction {
@@ -40,13 +46,50 @@ export interface PaginatedTransactionsResult {
   };
 }
 
+export async function getLiquidBalances(
+  asOfDate?: Date | string
+): Promise<LiquidBalances> {
+  await connectDB();
+  const match: any = { isArchived: { $ne: true } };
+  if (asOfDate) {
+    const end = new Date(asOfDate);
+    end.setHours(23, 59, 59, 999);
+    match.date = { $lte: end };
+  }
+
+  const agg = await Transaction.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: "$bankOrCash",
+        totalDebit: { $sum: "$debit" },
+        totalCredit: { $sum: "$credit" },
+      },
+    },
+  ]);
+
+  let bankBalance = 0;
+  let cashBalance = 0;
+
+  for (const row of agg) {
+    const bal = (row.totalCredit || 0) - (row.totalDebit || 0);
+    if (row._id === "Bank") bankBalance = bal;
+    else if (row._id === "Cash") cashBalance = bal;
+  }
+
+  return {
+    bankBalance,
+    cashBalance,
+    totalLiquidCapital: bankBalance + cashBalance,
+  };
+}
+
 export async function getTransactions(
   options: TransactionFilterOptions = {}
 ): Promise<PaginatedTransactionsResult> {
   await connectDB();
 
   const {
-    accountType,
     startDate,
     endDate,
     category,
@@ -58,11 +101,7 @@ export async function getTransactions(
     limit = 50,
   } = options;
 
-  const query: any = { isArchived: { $ne: true } };
-
-  if (accountType && accountType !== "ALL") {
-    query.accountType = accountType;
-  }
+  const query: any = { isArchived: { $ne: true }, accountType: "MAIN" };
 
   if (startDate || endDate) {
     query.date = {};
@@ -143,6 +182,14 @@ export async function getTransactions(
     bankBalance: rawSummary.bankCredit - rawSummary.bankDebit,
     cashBalance: rawSummary.cashCredit - rawSummary.cashDebit,
     totalTransactions: rawSummary.count,
+    liquidBalances: {
+      bankBalance: rawSummary.bankCredit - rawSummary.bankDebit,
+      cashBalance: rawSummary.cashCredit - rawSummary.cashDebit,
+      totalLiquidCapital:
+        rawSummary.bankCredit -
+        rawSummary.bankDebit +
+        (rawSummary.cashCredit - rawSummary.cashDebit),
+    },
   };
 
   // Get total count
@@ -150,7 +197,6 @@ export async function getTransactions(
   const skip = (page - 1) * limit;
 
   // Retrieve transactions sorted chronologically
-  // We sort ascending to compute running balance, then reverse or sort according to pagination
   const allFilteredTransactions = await Transaction.find(query)
     .sort({ date: 1, createdAt: 1, _id: 1 })
     .lean();
@@ -197,7 +243,7 @@ export async function createTransaction(
       await Category.create({
         name: data.category.trim(),
         slug: data.category.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        type: data.accountType === "ECOMMERCE" ? "INCOME" : "EXPENSE",
+        type: data.credit && data.credit > 0 ? "INCOME" : "EXPENSE",
         isActive: true,
       });
     }
@@ -205,6 +251,7 @@ export async function createTransaction(
 
   const tx = await Transaction.create({
     ...data,
+    accountType: "MAIN",
     createdBy: userEmail,
   });
 
@@ -216,7 +263,7 @@ export async function updateTransaction(
   data: Partial<ITransaction>
 ): Promise<ITransaction | null> {
   await connectDB();
-  return Transaction.findByIdAndUpdate(id, data, { new: true });
+  return Transaction.findByIdAndUpdate(id, { ...data, accountType: "MAIN" }, { new: true });
 }
 
 export async function archiveTransaction(id: string): Promise<boolean> {
