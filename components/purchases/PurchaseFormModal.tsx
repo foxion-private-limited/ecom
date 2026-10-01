@@ -197,7 +197,7 @@ export function PurchaseFormModal({
         throw new Error(data.error || "Failed to record purchase");
       }
 
-      toast.success("Purchase recorded! Stock incremented & Main accounts transaction logged.");
+      toast.success("Purchase recorded! Stock incremented & Accounts transaction logged.");
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -212,7 +212,7 @@ export function PurchaseFormModal({
       isOpen={isOpen}
       onClose={onClose}
       title="Record Purchase (Inward Stock)"
-      description="Increases inventory stock, creates stock movement records, and creates a Main Accounts debit transaction"
+      description="Increases inventory stock, creates stock movement records, and creates an Accounts debit transaction"
       maxWidth="4xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -260,7 +260,7 @@ export function PurchaseFormModal({
             value={paymentStatus}
             onChange={(e) => setPaymentStatus(e.target.value as any)}
             options={[
-              { label: "Paid (Debits Main Account)", value: "PAID" },
+              { label: "Paid (Debits Accounts)", value: "PAID" },
               { label: "Pending (Credit Purchase)", value: "PENDING" },
             ]}
           />

@@ -9,7 +9,8 @@ export async function importAccountingBatch(
   validRows: ExcelAccountingRow[],
   accountType: AccountType = "MAIN",
   filename: string,
-  userEmail: string = "System"
+  userEmail: string = "System",
+  origin: "COMPANY" | "PRE_COMPANY" = "COMPANY"
 ): Promise<ExcelImportResult> {
   await connectDB();
 
@@ -41,22 +42,34 @@ export async function importAccountingBatch(
     const txDocs = [];
     for (const row of validRows) {
       const parsedDate = parseIndianDate(row.date) || new Date();
+      const rowOrigin = row.transactionOrigin || origin;
+      const bankOrCash = row.bankOrCash || (rowOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank");
+      let paymentSource = row.paymentSource;
+      if (!paymentSource) {
+        if (bankOrCash === "Personal Bank") paymentSource = "Personal Bank";
+        else if (bankOrCash === "Personal Cash") paymentSource = "Personal Cash";
+        else if (bankOrCash === "Cash") paymentSource = "Company Cash";
+        else paymentSource = "Company Bank";
+      }
 
       txDocs.push({
         accountType,
+        transactionOrigin: rowOrigin,
+        paidBy: row.paidBy?.trim() || undefined,
+        paymentSource,
         date: parsedDate,
         description: row.description,
         category: row.category,
         debit: Number(row.debit) || 0,
         credit: Number(row.credit) || 0,
-        paymentMode: row.paymentMode || "Bank Transfer",
-        bankOrCash: row.bankOrCash || "Bank",
-        partyName: row.partyName,
-        invoiceOrderId: row.invoiceOrderId,
+        paymentMode: row.paymentMode || (bankOrCash.includes("Cash") ? "Cash" : "UPI"),
+        bankOrCash,
+        partyName: row.partyName?.trim() || undefined,
+        invoiceOrderId: row.invoiceOrderId?.trim() || undefined,
         gstApplicable: !!row.gstApplicable,
         gstAmount: Number(row.gstAmount) || 0,
         tdsTcsAmount: Number(row.tdsTcsAmount) || 0,
-        remarks: row.remarks,
+        remarks: row.remarks?.trim() || undefined,
         billAvailable: !!row.billAvailable,
         source: "EXCEL_IMPORT",
         importBatchId: batchId,
@@ -74,6 +87,7 @@ export async function importAccountingBatch(
       batchId,
       filename,
       accountType,
+      origin,
       totalRows: validRows.length,
       validRows: validRows.length,
       importedRows: importedCount,

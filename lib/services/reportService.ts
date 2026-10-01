@@ -221,6 +221,11 @@ export async function getCashFlowReport(options: ReportFilterOptions = {}) {
   const txs = await Transaction.find({
     date: { $gte: start, $lte: end },
     isArchived: { $ne: true },
+    bankOrCash: { $in: ["Bank", "Cash"] },
+    $or: [
+      { transactionOrigin: { $ne: "PRE_COMPANY" } },
+      { paymentSource: { $in: ["Company Bank", "Company Cash"] } },
+    ],
   })
     .sort({ date: 1 })
     .lean();
@@ -451,8 +456,24 @@ export async function getExpensesReport(options: ReportFilterOptions = {}) {
   ]);
 
   const totalExpense = rows.reduce((acc, r) => acc + (r.debit || 0), 0);
-  const bankPaid = rows.filter((r) => r.bankOrCash === "Bank").reduce((acc, r) => acc + (r.debit || 0), 0);
-  const cashPaid = rows.filter((r) => r.bankOrCash === "Cash").reduce((acc, r) => acc + (r.debit || 0), 0);
+  const bankPaid = rows
+    .filter((r) => r.bankOrCash === "Bank" || r.paymentSource === "Company Bank")
+    .reduce((acc, r) => acc + (r.debit || 0), 0);
+  const cashPaid = rows
+    .filter((r) => r.bankOrCash === "Cash" || r.paymentSource === "Company Cash")
+    .reduce((acc, r) => acc + (r.debit || 0), 0);
+  const personalPaid = rows
+    .filter(
+      (r) =>
+        r.bankOrCash === "Personal Bank" ||
+        r.bankOrCash === "Personal Cash" ||
+        r.paymentSource === "Personal Bank" ||
+        r.paymentSource === "Personal Cash"
+    )
+    .reduce((acc, r) => acc + (r.debit || 0), 0);
+  const preCompanyExpensesTotal = rows
+    .filter((r) => r.transactionOrigin === "PRE_COMPANY")
+    .reduce((acc, r) => acc + (r.debit || 0), 0);
 
   return {
     period: { start, end },
@@ -460,6 +481,8 @@ export async function getExpensesReport(options: ReportFilterOptions = {}) {
       totalExpense,
       bankPaid,
       cashPaid,
+      personalPaid,
+      preCompanyExpensesTotal,
       topCategory: expensesAgg[0]?._id || "N/A",
       topCategoryAmount: expensesAgg[0]?.total || 0,
     },
@@ -476,6 +499,9 @@ export async function getExpensesReport(options: ReportFilterOptions = {}) {
       amount: r.debit,
       paymentMode: r.paymentMode,
       bankOrCash: r.bankOrCash,
+      paymentSource: r.paymentSource,
+      paidBy: r.paidBy,
+      transactionOrigin: r.transactionOrigin || "COMPANY",
       partyName: r.partyName,
       billAvailable: r.billAvailable,
     })),

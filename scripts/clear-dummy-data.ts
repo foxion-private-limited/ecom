@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { connectDB } from "../lib/db/connection";
 import { User } from "../lib/models/User";
 import { Category } from "../lib/models/Category";
@@ -13,14 +14,60 @@ import { ImportBatch } from "../lib/models/ImportBatch";
 import { hashPassword } from "../lib/auth/session";
 
 export async function clearAllDummyData() {
-  console.log("[Foxion DB] Connecting to database...");
+  console.log("[Foxion Cleanup] Connecting to database...");
   await connectDB();
 
-  console.log("[Foxion DB] Purging all dummy & sample records...");
-  const results = await Promise.all([
+  const db = mongoose.connection.db;
+  if (!db) {
+    throw new Error("Failed to access native MongoDB database connection.");
+  }
+
+  // 1. Inspect initial document counts before cleanup
+  const [
+    initialTxCount,
+    initialOrderCount,
+    initialPurchaseCount,
+    initialStockCount,
+    initialProductCount,
+    initialPartyCount,
+    initialBillCount,
+    initialBatchCount,
+  ] = await Promise.all([
+    Transaction.countDocuments(),
+    Order.countDocuments(),
+    Purchase.countDocuments(),
+    StockMovement.countDocuments(),
+    Product.countDocuments(),
+    Party.countDocuments(),
+    Bill.countDocuments(),
+    ImportBatch.countDocuments(),
+  ]);
+
+  console.log("[Foxion Cleanup] Current operational document counts before cleanup:");
+  console.log(` - Transactions: ${initialTxCount}`);
+  console.log(` - Orders: ${initialOrderCount}`);
+  console.log(` - Purchases: ${initialPurchaseCount}`);
+  console.log(` - Stock Movements: ${initialStockCount}`);
+  console.log(` - Products: ${initialProductCount}`);
+  console.log(` - Parties: ${initialPartyCount}`);
+  console.log(` - Bills: ${initialBillCount}`);
+  console.log(` - Import Batches: ${initialBatchCount}`);
+
+  // 2. Targeted Deletion of Operational Dummy Records
+  console.log("\n[Foxion Cleanup] Deleting dummy operational records...");
+  const [
+    txRes,
+    orderRes,
+    purchaseRes,
+    stockRes,
+    productRes,
+    partyRes,
+    billRes,
+    batchRes,
+  ] = await Promise.all([
+    Transaction.deleteMany({}),
     Order.deleteMany({}),
     Purchase.deleteMany({}),
-    Transaction.deleteMany({}),
     StockMovement.deleteMany({}),
     Product.deleteMany({}),
     Party.deleteMany({}),
@@ -28,17 +75,21 @@ export async function clearAllDummyData() {
     ImportBatch.deleteMany({}),
   ]);
 
-  console.log("[Foxion DB] Dummy data successfully purged:");
-  console.log(` - Orders deleted: ${results[0].deletedCount}`);
-  console.log(` - Purchases deleted: ${results[1].deletedCount}`);
-  console.log(` - Transactions deleted: ${results[2].deletedCount}`);
-  console.log(` - Stock movements deleted: ${results[3].deletedCount}`);
-  console.log(` - Products deleted: ${results[4].deletedCount}`);
-  console.log(` - Parties deleted: ${results[5].deletedCount}`);
-  console.log(` - Bills deleted: ${results[6].deletedCount}`);
-  console.log(` - Import batches deleted: ${results[7].deletedCount}`);
+  // 3. Drop legacy / obsolete collections if present (e.g. bankreconciliations)
+  const existingCollections = await db.listCollections().toArray();
+  const collectionNames = existingCollections.map((c) => c.name);
 
-  // Ensure Admin User Exists
+  let droppedLegacyCollections = 0;
+  if (collectionNames.includes("bankreconciliations")) {
+    await db.dropCollection("bankreconciliations");
+    console.log("[Foxion Cleanup] Dropped obsolete legacy collection: bankreconciliations");
+    droppedLegacyCollections++;
+  }
+
+  // 4. Preserve / Ensure Required System & Configuration Data
+  console.log("\n[Foxion Cleanup] Preserving and verifying required system data...");
+
+  // Admin user
   const adminEmail = process.env.ADMIN_EMAIL || "admin@foxion.in";
   let admin = await User.findOne({ email: adminEmail });
   if (!admin) {
@@ -51,10 +102,16 @@ export async function clearAllDummyData() {
       role: "admin",
       isActive: true,
     });
-    console.log(`[Foxion DB] Verified admin user: ${adminEmail}`);
+    console.log(`[Foxion Cleanup] Admin account created: ${adminEmail}`);
+  } else {
+    // Ensure active and admin role
+    admin.role = "admin";
+    admin.isActive = true;
+    await admin.save();
+    console.log(`[Foxion Cleanup] Admin account verified: ${adminEmail}`);
   }
 
-  // Ensure Standard Taxonomy (Categories) Exist
+  // Categories
   const categoryDefs = [
     { name: "Kitchen", slug: "kitchen", type: "PRODUCT" as const, description: "Kitchen tools, choppers, and lighters" },
     { name: "Electronics", slug: "electronics", type: "PRODUCT" as const, description: "Speakers, chargers, and electronic devices" },
@@ -74,7 +131,7 @@ export async function clearAllDummyData() {
     }
   }
 
-  // Ensure Standard Platforms Exist
+  // Platforms
   const platformDefs = [
     { name: "Amazon", code: "AMZ", defaultCommissionPercentage: 15, color: "#f59e0b" },
     { name: "Meesho", code: "MSH", defaultCommissionPercentage: 5, color: "#ec4899" },
@@ -90,23 +147,89 @@ export async function clearAllDummyData() {
     }
   }
 
+  // 5. Final Post-Cleanup Verification Counts
+  const [
+    finalTxCount,
+    finalOrderCount,
+    finalPurchaseCount,
+    finalStockCount,
+    finalProductCount,
+    finalPartyCount,
+    finalBillCount,
+    finalBatchCount,
+    finalUserCount,
+    finalCategoryCount,
+    finalPlatformCount,
+  ] = await Promise.all([
+    Transaction.countDocuments(),
+    Order.countDocuments(),
+    Purchase.countDocuments(),
+    StockMovement.countDocuments(),
+    Product.countDocuments(),
+    Party.countDocuments(),
+    Bill.countDocuments(),
+    ImportBatch.countDocuments(),
+    User.countDocuments(),
+    Category.countDocuments(),
+    Platform.countDocuments(),
+  ]);
+
+  console.log("\n====================================================");
+  console.log("Foxion Cleanup Completed Successfully!");
   console.log("====================================================");
-  console.log("All dummy records cleared! Database is completely clean.");
-  console.log("Standard admin, categories, and platforms are preserved.");
+  console.log("Deleted Records:");
+  console.log(` - Transactions: ${txRes.deletedCount}`);
+  console.log(` - Orders: ${orderRes.deletedCount}`);
+  console.log(` - Purchases: ${purchaseRes.deletedCount}`);
+  console.log(` - Stock Movements: ${stockRes.deletedCount}`);
+  console.log(` - Products: ${productRes.deletedCount}`);
+  console.log(` - Parties: ${partyRes.deletedCount}`);
+  console.log(` - Bills: ${billRes.deletedCount}`);
+  console.log(` - Import Batches: ${batchRes.deletedCount}`);
+  console.log(` - Obsolete Legacy Collections Dropped: ${droppedLegacyCollections}`);
+  console.log("----------------------------------------------------");
+  console.log("Remaining Operational Records (must be 0):");
+  console.log(` - Transactions: ${finalTxCount}`);
+  console.log(` - Orders: ${finalOrderCount}`);
+  console.log(` - Purchases: ${finalPurchaseCount}`);
+  console.log(` - Stock Movements: ${finalStockCount}`);
+  console.log(` - Products: ${finalProductCount}`);
+  console.log(` - Parties: ${finalPartyCount}`);
+  console.log(` - Bills: ${finalBillCount}`);
+  console.log(` - Import Batches: ${finalBatchCount}`);
+  console.log("----------------------------------------------------");
+  console.log("Preserved System & Configuration Records:");
+  console.log(` - Admin Users: ${finalUserCount}`);
+  console.log(` - Categories: ${finalCategoryCount}`);
+  console.log(` - Ecommerce Platforms: ${finalPlatformCount}`);
   console.log("====================================================");
 
   return {
-    success: true,
-    message: "All dummy data cleared successfully. System is in clean production state.",
-    clearedCounts: {
-      orders: results[0].deletedCount,
-      purchases: results[1].deletedCount,
-      transactions: results[2].deletedCount,
-      stockMovements: results[3].deletedCount,
-      products: results[4].deletedCount,
-      parties: results[5].deletedCount,
-      bills: results[6].deletedCount,
-      importBatches: results[7].deletedCount,
+    deleted: {
+      transactions: txRes.deletedCount,
+      orders: orderRes.deletedCount,
+      purchases: purchaseRes.deletedCount,
+      stockMovements: stockRes.deletedCount,
+      products: productRes.deletedCount,
+      parties: partyRes.deletedCount,
+      bills: billRes.deletedCount,
+      importBatches: batchRes.deletedCount,
+      reconciliationCollectionsDropped: droppedLegacyCollections,
+    },
+    preserved: {
+      adminUsers: finalUserCount,
+      categories: finalCategoryCount,
+      platforms: finalPlatformCount,
+    },
+    finalOperationalCounts: {
+      transactions: finalTxCount,
+      orders: finalOrderCount,
+      purchases: finalPurchaseCount,
+      stockMovements: finalStockCount,
+      products: finalProductCount,
+      parties: finalPartyCount,
+      bills: finalBillCount,
+      importBatches: finalBatchCount,
     },
   };
 }
@@ -115,7 +238,7 @@ if (require.main === module || process.argv[1]?.endsWith("clear-dummy-data.ts"))
   clearAllDummyData()
     .then(() => process.exit(0))
     .catch((err) => {
-      console.error("[Foxion DB] Error clearing dummy data:", err);
+      console.error("[Foxion Cleanup] Fatal error during cleanup:", err);
       process.exit(1);
     });
 }

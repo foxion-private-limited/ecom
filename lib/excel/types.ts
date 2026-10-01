@@ -6,8 +6,11 @@ export interface ExcelAccountingRow {
   debit: number;
   credit: number;
   paymentMode: string;
-  bankOrCash: "Bank" | "Cash" | "N/A";
+  bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
+  paymentSource?: "Company Bank" | "Company Cash" | "Personal Bank" | "Personal Cash" | "Other";
+  transactionOrigin?: "COMPANY" | "PRE_COMPANY";
   partyName?: string;
+  paidBy?: string;
   invoiceOrderId?: string;
   gstApplicable: boolean;
   gstAmount: number;
@@ -35,8 +38,11 @@ export interface EditableImportRow {
   debit: number;
   credit: number;
   paymentMode: string;
-  bankOrCash: "Bank" | "Cash" | "N/A";
+  bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
+  paymentSource?: "Company Bank" | "Company Cash" | "Personal Bank" | "Personal Cash" | "Other";
+  transactionOrigin: "COMPANY" | "PRE_COMPANY";
   partyName: string;
+  paidBy: string;
   invoiceOrderId: string;
   gstApplicable: boolean;
   gstAmount: number;
@@ -53,6 +59,7 @@ export interface EditableImportRow {
 
 export interface ExcelValidationSummary {
   filename: string;
+  origin?: "COMPANY" | "PRE_COMPANY";
   totalRows: number;
   validCount: number;
   warningCount: number;
@@ -78,6 +85,7 @@ export const EXCEL_COLUMNS = [
   "Payment Mode",
   "Bank/Cash",
   "Party Name",
+  "Paid By",
   "Invoice/orderId",
   "GST Applicable",
   "GST Amount",

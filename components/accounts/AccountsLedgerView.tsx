@@ -33,13 +33,23 @@ import { toast } from "sonner";
 
 export function AccountsLedgerView({
   accountType = "MAIN",
-  title = "Main Accounts Ledger",
-  subtitle = "Single general accounting book for purchases, sales, expenses, bank & cash transactions",
+  origin = "COMPANY",
+  title,
+  subtitle,
 }: {
   accountType?: AccountType | string;
+  origin?: "COMPANY" | "PRE_COMPANY" | "ALL";
   title?: string;
   subtitle?: string;
 }) {
+  const isPreCompany = origin === "PRE_COMPANY";
+  const displayTitle = title || (isPreCompany ? "Pre-Company Transactions" : "Accounts Ledger");
+  const displaySubtitle =
+    subtitle ||
+    (isPreCompany
+      ? "Historical business transactions and expenses recorded prior to official company bank setup"
+      : "Single general accounting book for purchases, sales, expenses, bank & cash transactions");
+
   const [transactions, setTransactions] = useState<any[]>([]);
   const [summary, setSummary] = useState({
     totalDebit: 0,
@@ -47,6 +57,9 @@ export function AccountsLedgerView({
     netBalance: 0,
     bankBalance: 0,
     cashBalance: 0,
+    personalBankBalance: 0,
+    personalCashBalance: 0,
+    personalTotalPaid: 0,
     totalTransactions: 0,
   });
   const [pagination, setPagination] = useState({
@@ -73,6 +86,7 @@ export function AccountsLedgerView({
     try {
       const params = new URLSearchParams();
       params.set("accountType", accountType);
+      params.set("origin", origin);
       if (search) params.set("search", search);
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
@@ -96,6 +110,7 @@ export function AccountsLedgerView({
     }
   }, [
     accountType,
+    origin,
     search,
     startDate,
     endDate,
@@ -135,6 +150,7 @@ export function AccountsLedgerView({
   const handleExport = () => {
     const params = new URLSearchParams();
     params.set("accountType", accountType);
+    params.set("origin", origin);
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
     if (category !== "ALL") params.set("category", category);
@@ -146,8 +162,15 @@ export function AccountsLedgerView({
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">{title}</h1>
-          <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-white">{displayTitle}</h1>
+            {isPreCompany && (
+              <Badge variant="warning" className="text-[11px] uppercase tracking-wider font-semibold">
+                Historical Records
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">{displaySubtitle}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
@@ -159,13 +182,13 @@ export function AccountsLedgerView({
             }}
           >
             <Plus className="w-4 h-4 mr-1.5" />
-            Add Transaction
+            {isPreCompany ? "Add Pre-Company Transaction" : "Add Transaction"}
           </Button>
 
-          <Link href="/accounts/import">
+          <Link href={isPreCompany ? "/accounts/import?origin=PRE_COMPANY" : "/accounts/import"}>
             <Button variant="secondary">
               <FileSpreadsheet className="w-4 h-4 mr-1.5 text-emerald-400" />
-              Import Excel
+              {isPreCompany ? "Import Pre-Company Excel" : "Import Excel"}
             </Button>
           </Link>
 
@@ -177,56 +200,109 @@ export function AccountsLedgerView({
       </div>
 
       {/* KPI Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <Card className="p-4 bg-slate-900/60 border-slate-800/80">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-            Total Debit (Outflow)
-          </span>
-          <p className="text-lg font-bold text-rose-400 mt-1">
-            {formatINR(summary.totalDebit)}
-          </p>
-        </Card>
+      {isPreCompany ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Total Pre-Company Expenses
+            </span>
+            <p className="text-lg font-bold text-rose-400 mt-1">
+              {formatINR(summary.totalDebit)}
+            </p>
+          </Card>
 
-        <Card className="p-4 bg-slate-900/60 border-slate-800/80">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-            Total Credit (Inflow)
-          </span>
-          <p className="text-lg font-bold text-emerald-400 mt-1">
-            {formatINR(summary.totalCredit)}
-          </p>
-        </Card>
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Total Inflow / Advances
+            </span>
+            <p className="text-lg font-bold text-emerald-400 mt-1">
+              {formatINR(summary.totalCredit)}
+            </p>
+          </Card>
 
-        <Card className="p-4 bg-slate-900/60 border-slate-800/80">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-            Net Book Balance
-          </span>
-          <p
-            className={`text-lg font-bold mt-1 ${
-              summary.netBalance >= 0 ? "text-blue-400" : "text-rose-400"
-            }`}
-          >
-            {formatINR(summary.netBalance)}
-          </p>
-        </Card>
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Net Pre-Company Balance
+            </span>
+            <p
+              className={`text-lg font-bold mt-1 ${
+                summary.netBalance >= 0 ? "text-blue-400" : "text-rose-400"
+              }`}
+            >
+              {formatINR(summary.netBalance)}
+            </p>
+          </Card>
 
-        <Card className="p-4 bg-slate-900/60 border-slate-800/80">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-            Bank Account Balance
-          </span>
-          <p className="text-lg font-bold text-cyan-400 mt-1">
-            {formatINR(summary.bankBalance)}
-          </p>
-        </Card>
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Paid via Personal Bank
+            </span>
+            <p className="text-lg font-bold text-cyan-400 mt-1">
+              {formatINR(Math.abs(summary.personalBankBalance || 0))}
+            </p>
+          </Card>
 
-        <Card className="p-4 bg-slate-900/60 border-slate-800/80">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-            Cash in Hand
-          </span>
-          <p className="text-lg font-bold text-amber-400 mt-1">
-            {formatINR(summary.cashBalance)}
-          </p>
-        </Card>
-      </div>
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Paid via Personal Cash
+            </span>
+            <p className="text-lg font-bold text-amber-400 mt-1">
+              {formatINR(Math.abs(summary.personalCashBalance || 0))}
+            </p>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Total Debit (Outflow)
+            </span>
+            <p className="text-lg font-bold text-rose-400 mt-1">
+              {formatINR(summary.totalDebit)}
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Total Credit (Inflow)
+            </span>
+            <p className="text-lg font-bold text-emerald-400 mt-1">
+              {formatINR(summary.totalCredit)}
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Net Book Balance
+            </span>
+            <p
+              className={`text-lg font-bold mt-1 ${
+                summary.netBalance >= 0 ? "text-blue-400" : "text-rose-400"
+              }`}
+            >
+              {formatINR(summary.netBalance)}
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Bank Account Balance
+            </span>
+            <p className="text-lg font-bold text-cyan-400 mt-1">
+              {formatINR(summary.bankBalance)}
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/60 border-slate-800/80">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+              Cash in Hand
+            </span>
+            <p className="text-lg font-bold text-amber-400 mt-1">
+              {formatINR(summary.cashBalance)}
+            </p>
+          </Card>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <Card className="p-4 bg-slate-900/60 border-slate-800/80 space-y-3">
@@ -236,7 +312,11 @@ export function AccountsLedgerView({
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search description, invoice, party..."
+                placeholder={
+                  isPreCompany
+                    ? "Search description, party, paid by..."
+                    : "Search description, invoice, party..."
+                }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
@@ -285,9 +365,11 @@ export function AccountsLedgerView({
               onChange={(e) => setBankOrCash(e.target.value)}
               className="w-full px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
             >
-              <option value="ALL">Bank & Cash</option>
-              <option value="Bank">Bank Only</option>
-              <option value="Cash">Cash Only</option>
+              <option value="ALL">All Payment Sources</option>
+              <option value="Personal Bank">Personal Bank</option>
+              <option value="Personal Cash">Personal Cash</option>
+              <option value="Bank">Company Bank</option>
+              <option value="Cash">Company Cash</option>
             </select>
           </div>
         </div>
@@ -306,8 +388,9 @@ export function AccountsLedgerView({
                 <th className="py-3 px-3 text-right">Credit (₹)</th>
                 <th className="py-3 px-3 text-right">Running Balance</th>
                 <th className="py-3 px-3">Payment Mode</th>
-                <th className="py-3 px-3">Bank/Cash</th>
-                <th className="py-3 px-3">Party / Invoice</th>
+                <th className="py-3 px-3">Payment Source</th>
+                <th className="py-3 px-3">Party Name</th>
+                {isPreCompany && <th className="py-3 px-3">Paid By</th>}
                 <th className="py-3 px-3 text-center">Bill</th>
                 <th className="py-3 px-3 text-right">Actions</th>
               </tr>
@@ -315,23 +398,27 @@ export function AccountsLedgerView({
             <tbody className="divide-y divide-slate-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={isPreCompany ? 12 : 11} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-400" />
                     Loading transactions...
                   </td>
                 </tr>
               ) : transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={isPreCompany ? 12 : 11} className="py-12 text-center text-slate-400">
                     <div className="max-w-xs mx-auto space-y-3">
-                      <p className="text-sm">No transactions found in this view.</p>
+                      <p className="text-sm">
+                        {isPreCompany
+                          ? "No pre-company transactions found."
+                          : "No transactions found in this view."}
+                      </p>
                       <Button
                         size="sm"
                         variant="primary"
                         onClick={() => setIsModalOpen(true)}
                       >
                         <Plus className="w-3.5 h-3.5 mr-1" />
-                        Add First Transaction
+                        {isPreCompany ? "Add Pre-Company Transaction" : "Add First Transaction"}
                       </Button>
                     </div>
                   </td>
@@ -372,10 +459,18 @@ export function AccountsLedgerView({
                     </td>
                     <td className="py-3 px-3 whitespace-nowrap">
                       <Badge
-                        variant={tx.bankOrCash === "Bank" ? "info" : "warning"}
+                        variant={
+                          tx.bankOrCash === "Personal Bank"
+                            ? "info"
+                            : tx.bankOrCash === "Personal Cash"
+                            ? "warning"
+                            : tx.bankOrCash === "Bank"
+                            ? "info"
+                            : "warning"
+                        }
                         className="text-[10px] py-0 px-2"
                       >
-                        {tx.bankOrCash}
+                        {tx.paymentSource || tx.bankOrCash}
                       </Badge>
                     </td>
                     <td className="py-3 px-3 whitespace-nowrap text-slate-300">
@@ -386,6 +481,17 @@ export function AccountsLedgerView({
                         </span>
                       )}
                     </td>
+                    {isPreCompany && (
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        {tx.paidBy ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-cyan-950/70 border border-cyan-800/80 text-cyan-300">
+                            {tx.paidBy}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="py-3 px-3 text-center whitespace-nowrap">
                       {tx.billAvailable ? (
                         <span className="inline-flex items-center text-emerald-400 text-xs">
@@ -462,6 +568,7 @@ export function AccountsLedgerView({
         onClose={() => setIsModalOpen(false)}
         onSuccess={fetchTransactions}
         defaultAccountType={accountType}
+        defaultOrigin={isPreCompany ? "PRE_COMPANY" : "COMPANY"}
         initialData={editingTransaction}
       />
     </div>

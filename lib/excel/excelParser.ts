@@ -26,6 +26,10 @@ function normalizeHeader(header: string): string {
     case "head":
     case "expensehead":
       return "category";
+    case "incomeexpense":
+    case "type":
+    case "incometype":
+      return "incomeExpense";
     case "debit":
     case "dr":
     case "withdrawal":
@@ -45,11 +49,23 @@ function normalizeHeader(header: string): string {
     case "account":
     case "bank":
       return "bankOrCash";
+    case "paymentsource":
+    case "sourceofpayment":
+      return "paymentSource";
     case "partyname":
     case "party":
     case "vendor":
     case "customer":
       return "partyName";
+    case "paidby":
+    case "paidbyname":
+    case "payer":
+      return "paidBy";
+    case "transactionorigin":
+    case "origin":
+    case "period":
+    case "transactionperiod":
+      return "transactionOrigin";
     case "invoiceorderid":
     case "invoiceid":
     case "orderid":

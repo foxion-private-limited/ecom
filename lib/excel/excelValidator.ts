@@ -10,7 +10,8 @@ import { parseIndianDate } from "@/lib/utils";
  * Validate a single row in the editable import table
  */
 export function validateSingleRow(
-  raw: Partial<ExcelAccountingRow> | EditableImportRow
+  raw: Partial<ExcelAccountingRow> | EditableImportRow,
+  options?: { origin?: "COMPANY" | "PRE_COMPANY" }
 ): {
   isValid: boolean;
   parsedDate: Date | null;
@@ -21,6 +22,7 @@ export function validateSingleRow(
 } {
   const fieldErrors: Record<string, string> = {};
   const warnings: string[] = [];
+  const origin = options?.origin || (raw as any).transactionOrigin || "COMPANY";
 
   // 1. Date validation
   const parsedDate = parseIndianDate(raw.date);
@@ -77,6 +79,20 @@ export function validateSingleRow(
     fieldErrors.tdsTcsAmount = "TDS/TCS must be ≥ 0";
   }
 
+  // 6. Paid By validation for personal payments
+  const isPersonal =
+    raw.bankOrCash === "Personal Bank" ||
+    raw.bankOrCash === "Personal Cash" ||
+    raw.paymentSource === "Personal Bank" ||
+    raw.paymentSource === "Personal Cash";
+
+  if (origin === "PRE_COMPANY" && isPersonal) {
+    const paidByVal = String(raw.paidBy || "").trim();
+    if (!paidByVal) {
+      fieldErrors.paidBy = "Paid By is required for personal payments";
+    }
+  }
+
   const isValid = Object.keys(fieldErrors).length === 0;
 
   return {
@@ -94,32 +110,77 @@ export function validateSingleRow(
  */
 export function validateExcelRows(
   rawRows: Partial<ExcelAccountingRow>[],
-  filename: string
+  filename: string,
+  options?: { origin?: "COMPANY" | "PRE_COMPANY" }
 ): ExcelValidationSummary {
   const validatedRows: ExcelRowValidationResult[] = [];
   let validCount = 0;
   let warningCount = 0;
   let errorCount = 0;
+  const isPreCompany = options?.origin === "PRE_COMPANY";
 
   for (let idx = 0; idx < rawRows.length; idx++) {
     const raw = rawRows[idx];
     const rowNumber = idx + 2; // +1 for 0-index, +1 for header
-    const validation = validateSingleRow(raw);
+    const rawPaidBy = String(raw.paidBy || "").trim();
 
-    // Normalize Bank/Cash
-    let bankOrCash: "Bank" | "Cash" | "N/A" = "Bank";
-    const rawBankCash = String(raw.bankOrCash || "").trim().toLowerCase();
-    if (rawBankCash.includes("cash")) {
-      bankOrCash = "Cash";
-    } else if (rawBankCash.includes("bank") || rawBankCash.includes("hdfc") || rawBankCash.includes("sbi") || rawBankCash.includes("icici")) {
-      bankOrCash = "Bank";
-    } else if (rawBankCash === "n/a" || rawBankCash === "na") {
-      bankOrCash = "N/A";
+    // Normalize Bank/Cash and Payment Source
+    let bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A" = "Bank";
+    let paymentSource: "Company Bank" | "Company Cash" | "Personal Bank" | "Personal Cash" | "Other" = "Company Bank";
+
+    const rawBankCash = String(raw.bankOrCash || raw.paymentSource || "").trim().toLowerCase();
+
+    if (isPreCompany) {
+      if (rawBankCash.includes("company cash")) {
+        bankOrCash = "Cash";
+        paymentSource = "Company Cash";
+      } else if (rawBankCash.includes("company bank")) {
+        bankOrCash = "Bank";
+        paymentSource = "Company Bank";
+      } else if (rawBankCash.includes("cash") && !rawBankCash.includes("company")) {
+        bankOrCash = "Personal Cash";
+        paymentSource = "Personal Cash";
+      } else if (rawBankCash === "n/a" || rawBankCash === "na") {
+        bankOrCash = "N/A";
+        paymentSource = "Other";
+      } else {
+        // In Pre-Company mode, default to Personal Bank (before company bank was setup)
+        bankOrCash = "Personal Bank";
+        paymentSource = "Personal Bank";
+      }
+    } else {
+      if (rawBankCash.includes("cash")) {
+        bankOrCash = "Cash";
+        paymentSource = "Company Cash";
+      } else if (rawBankCash.includes("bank") || rawBankCash.includes("hdfc") || rawBankCash.includes("sbi") || rawBankCash.includes("icici")) {
+        bankOrCash = "Bank";
+        paymentSource = "Company Bank";
+      } else if (rawBankCash.includes("personal bank")) {
+        bankOrCash = "Personal Bank";
+        paymentSource = "Personal Bank";
+      } else if (rawBankCash.includes("personal cash")) {
+        bankOrCash = "Personal Cash";
+        paymentSource = "Personal Cash";
+      } else if (rawBankCash === "n/a" || rawBankCash === "na") {
+        bankOrCash = "N/A";
+        paymentSource = "Other";
+      }
     }
+
+    const validation = validateSingleRow(
+      {
+        ...raw,
+        bankOrCash,
+        paymentSource,
+        paidBy: rawPaidBy,
+        transactionOrigin: isPreCompany ? "PRE_COMPANY" : "COMPANY",
+      },
+      { origin: isPreCompany ? "PRE_COMPANY" : "COMPANY" }
+    );
 
     const paymentMode =
       String(raw.paymentMode || "").trim() ||
-      (bankOrCash === "Cash" ? "Cash" : "Bank Transfer");
+      (bankOrCash.includes("Cash") ? "Cash" : "UPI");
 
     const gstApplicableRaw = String(raw.gstApplicable || "").trim().toLowerCase();
     const gstApplicable =
@@ -147,7 +208,10 @@ export function validateExcelRows(
       credit: validation.credit,
       paymentMode,
       bankOrCash,
+      paymentSource,
+      transactionOrigin: isPreCompany ? "PRE_COMPANY" : "COMPANY",
       partyName: String(raw.partyName || "").trim(),
+      paidBy: rawPaidBy,
       invoiceOrderId: String(raw.invoiceOrderId || "").trim(),
       gstApplicable,
       gstAmount: Math.max(0, Number(raw.gstAmount) || 0),
@@ -178,6 +242,7 @@ export function validateExcelRows(
 
   return {
     filename,
+    origin: isPreCompany ? "PRE_COMPANY" : "COMPANY",
     totalRows: rawRows.length,
     validCount,
     warningCount,

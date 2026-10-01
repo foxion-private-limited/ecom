@@ -27,8 +27,11 @@ export async function POST(req: Request) {
       );
     }
 
+    // Extract origin if provided (default COMPANY)
+    const origin = (formData.get("origin") as any) === "PRE_COMPANY" ? "PRE_COMPANY" : "COMPANY";
+
     // Validate rows
-    const validationSummary = validateExcelRows(rows, file.name);
+    const validationSummary = validateExcelRows(rows, file.name, { origin });
 
     return NextResponse.json({
       success: true,

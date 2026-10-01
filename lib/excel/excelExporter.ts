@@ -10,8 +10,11 @@ export interface TransactionExportItem {
   debit: number;
   credit: number;
   paymentMode: string;
-  bankOrCash: "Bank" | "Cash" | "N/A";
+  bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
+  paymentSource?: string;
+  transactionOrigin?: "COMPANY" | "PRE_COMPANY";
   partyName?: string;
+  paidBy?: string;
   invoiceOrderId?: string;
   gstApplicable?: boolean;
   gstAmount?: number;
@@ -21,7 +24,7 @@ export interface TransactionExportItem {
 }
 
 /**
- * Generate Excel workbook buffer with exact 16-column template and calculated balances
+ * Generate Excel workbook buffer with exact 16/17-column template and calculated balances
  */
 export function generateAccountingExcel(
   transactions: TransactionExportItem[],
@@ -48,8 +51,9 @@ export function generateAccountingExcel(
       Debit: debit,
       Credit: credit,
       "Payment Mode": tx.paymentMode || "",
-      "Bank/Cash": tx.bankOrCash || "Bank",
+      "Bank/Cash": tx.paymentSource || tx.bankOrCash || "Bank",
       "Party Name": tx.partyName || "",
+      "Paid By": tx.paidBy || "",
       "Invoice/orderId": tx.invoiceOrderId || "",
       "GST Applicable": tx.gstApplicable ? "Yes" : "No",
       "GST Amount": Number(tx.gstAmount) || 0,
@@ -73,8 +77,9 @@ export function generateAccountingExcel(
     { wch: 14 }, // Debit
     { wch: 14 }, // Credit
     { wch: 16 }, // Payment Mode
-    { wch: 12 }, // Bank/Cash
+    { wch: 16 }, // Bank/Cash
     { wch: 24 }, // Party Name
+    { wch: 18 }, // Paid By
     { wch: 20 }, // Invoice/orderId
     { wch: 14 }, // GST Applicable
     { wch: 14 }, // GST Amount

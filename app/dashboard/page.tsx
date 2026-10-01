@@ -172,7 +172,7 @@ export default function DashboardPage() {
                 Liquid Capital & Available Balances
               </h3>
               <p className="text-[11px] text-slate-400">
-                Live balances in Foxion Main Accounts across Bank and Cash in hand
+                Live balances in Foxion Accounts across Bank and Cash in hand
               </p>
             </div>
             <div className="flex items-center gap-2 text-xs">
@@ -180,7 +180,7 @@ export default function DashboardPage() {
                 href="/accounts/main"
                 className="text-cyan-400 hover:underline flex items-center gap-1 font-medium"
               >
-                View Main Ledger →
+                View Accounts Ledger →
               </Link>
             </div>
           </div>

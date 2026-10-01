@@ -22,6 +22,8 @@ export default function ExpenseReportPage() {
       totalExpense: number;
       bankPaid: number;
       cashPaid: number;
+      personalPaid?: number;
+      preCompanyExpensesTotal?: number;
       topCategory: string;
       topCategoryAmount: number;
     };
@@ -39,6 +41,9 @@ export default function ExpenseReportPage() {
       paymentMode: string;
       bankOrCash: string;
       partyName?: string;
+      paidBy?: string;
+      transactionOrigin?: string;
+      paymentSource?: string;
       billAvailable?: boolean;
     }>;
   } | null>(null);
@@ -92,7 +97,7 @@ export default function ExpenseReportPage() {
                 Operational Expenses Report
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">
-                Main Accounts expense debits categorized by administrative and operational head
+                Accounts expense debits categorized by administrative, operational, and pre-company heads
               </p>
             </div>
           </div>
@@ -135,10 +140,10 @@ export default function ExpenseReportPage() {
         </Card>
 
         {/* KPI Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <Card className="p-4 bg-slate-900/80 border-slate-800">
             <span className="text-[11px] text-slate-400 uppercase tracking-wider block">
-              Total Operating Expenses
+              Total Expenses
             </span>
             <p className="text-xl font-bold text-rose-400 mt-1 font-mono">
               {formatINR(kpis.totalExpense)}
@@ -147,7 +152,7 @@ export default function ExpenseReportPage() {
 
           <Card className="p-4 bg-slate-900/80 border-slate-800">
             <span className="text-[11px] text-slate-400 uppercase tracking-wider block">
-              Paid via Bank (NEFT / UPI)
+              Paid via Company Bank
             </span>
             <p className="text-xl font-bold text-cyan-400 mt-1 font-mono">
               {formatINR(kpis.bankPaid)}
@@ -156,10 +161,19 @@ export default function ExpenseReportPage() {
 
           <Card className="p-4 bg-slate-900/80 border-slate-800">
             <span className="text-[11px] text-slate-400 uppercase tracking-wider block">
-              Paid in Cash
+              Company Cash
             </span>
             <p className="text-xl font-bold text-amber-400 mt-1 font-mono">
               {formatINR(kpis.cashPaid)}
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/80 border-slate-800">
+            <span className="text-[11px] text-purple-400 uppercase tracking-wider block">
+              Paid Personally
+            </span>
+            <p className="text-xl font-bold text-purple-400 mt-1 font-mono">
+              {formatINR(kpis.personalPaid || 0)}
             </p>
           </Card>
 
@@ -233,8 +247,20 @@ export default function ExpenseReportPage() {
                         <td className="py-2 px-3 font-mono text-[11px] text-slate-300 whitespace-nowrap">
                           {formatIndianDate(row.date)}
                         </td>
-                        <td className="py-2 px-3 font-medium text-white max-w-xs truncate">
-                          {row.description}
+                        <td className="py-2 px-3 font-medium text-white max-w-xs">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate">{row.description}</span>
+                            {row.transactionOrigin === "PRE_COMPANY" && (
+                              <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-800/80 text-amber-300">
+                                Pre-Co
+                              </span>
+                            )}
+                          </div>
+                          {row.paidBy && (
+                            <span className="text-[10px] text-slate-400 block">
+                              Paid by: {row.paidBy}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap">
                           <Badge variant="secondary" className="text-[10px]">
@@ -249,7 +275,13 @@ export default function ExpenseReportPage() {
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap">
                           <Badge
-                            variant={row.bankOrCash === "Bank" ? "info" : "warning"}
+                            variant={
+                              row.bankOrCash === "Bank"
+                                ? "info"
+                                : row.bankOrCash === "Cash"
+                                ? "warning"
+                                : "secondary"
+                            }
                             className="text-[10px]"
                           >
                             {row.bankOrCash}

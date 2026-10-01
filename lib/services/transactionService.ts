@@ -4,11 +4,14 @@ import { Category } from "@/lib/models/Category";
 
 export interface TransactionFilterOptions {
   accountType?: AccountType | string;
+  transactionOrigin?: "COMPANY" | "PRE_COMPANY" | "ALL";
   startDate?: Date | string;
   endDate?: Date | string;
   category?: string;
   paymentMode?: string;
-  bankOrCash?: "Bank" | "Cash" | "ALL";
+  bankOrCash?: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "ALL";
+  paymentSource?: string;
+  paidBy?: string;
   partyName?: string;
   search?: string;
   page?: number;
@@ -27,6 +30,9 @@ export interface TransactionSummary {
   netBalance: number;
   bankBalance: number;
   cashBalance: number;
+  personalBankBalance?: number;
+  personalCashBalance?: number;
+  personalTotalPaid?: number;
   totalTransactions: number;
   liquidBalances?: LiquidBalances;
 }
@@ -50,7 +56,16 @@ export async function getLiquidBalances(
   asOfDate?: Date | string
 ): Promise<LiquidBalances> {
   await connectDB();
-  const match: any = { isArchived: { $ne: true } };
+  const match: any = {
+    isArchived: { $ne: true },
+    // Only physical company bank/cash funds!
+    // Personal Bank and Personal Cash must NEVER affect company bank or company cash!
+    bankOrCash: { $in: ["Bank", "Cash"] },
+    $or: [
+      { transactionOrigin: { $ne: "PRE_COMPANY" } },
+      { paymentSource: { $in: ["Company Bank", "Company Cash"] } },
+    ],
+  };
   if (asOfDate) {
     const end = new Date(asOfDate);
     end.setHours(23, 59, 59, 999);
@@ -90,11 +105,14 @@ export async function getTransactions(
   await connectDB();
 
   const {
+    transactionOrigin = "COMPANY",
     startDate,
     endDate,
     category,
     paymentMode,
     bankOrCash,
+    paymentSource,
+    paidBy,
     partyName,
     search,
     page = 1,
@@ -102,6 +120,17 @@ export async function getTransactions(
   } = options;
 
   const query: any = { isArchived: { $ne: true }, accountType: "MAIN" };
+
+  if (transactionOrigin && transactionOrigin !== "ALL") {
+    if (transactionOrigin === "PRE_COMPANY") {
+      query.transactionOrigin = "PRE_COMPANY";
+    } else {
+      query.$or = [
+        { transactionOrigin: "COMPANY" },
+        { transactionOrigin: { $exists: false } },
+      ];
+    }
+  }
 
   if (startDate || endDate) {
     query.date = {};
@@ -127,18 +156,33 @@ export async function getTransactions(
     query.bankOrCash = bankOrCash;
   }
 
+  if (paymentSource && paymentSource !== "ALL") {
+    query.paymentSource = paymentSource;
+  }
+
+  if (paidBy) {
+    query.paidBy = { $regex: paidBy, $options: "i" };
+  }
+
   if (partyName) {
     query.partyName = { $regex: partyName, $options: "i" };
   }
 
   if (search) {
-    query.$or = [
+    const searchConditions = [
       { description: { $regex: search, $options: "i" } },
       { category: { $regex: search, $options: "i" } },
       { partyName: { $regex: search, $options: "i" } },
+      { paidBy: { $regex: search, $options: "i" } },
       { invoiceOrderId: { $regex: search, $options: "i" } },
       { remarks: { $regex: search, $options: "i" } },
     ];
+    if (query.$or) {
+      query.$and = [{ $or: query.$or }, { $or: searchConditions }];
+      delete query.$or;
+    } else {
+      query.$or = searchConditions;
+    }
   }
 
   // Calculate overall summary using aggregation (for the whole filtered set)
@@ -160,6 +204,62 @@ export async function getTransactions(
       cashCredit: {
         $sum: { $cond: [{ $eq: ["$bankOrCash", "Cash"] }, "$credit", 0] },
       },
+      personalBankDebit: {
+        $sum: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$bankOrCash", "Personal Bank"] },
+                { $eq: ["$paymentSource", "Personal Bank"] },
+              ],
+            },
+            "$debit",
+            0,
+          ],
+        },
+      },
+      personalBankCredit: {
+        $sum: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$bankOrCash", "Personal Bank"] },
+                { $eq: ["$paymentSource", "Personal Bank"] },
+              ],
+            },
+            "$credit",
+            0,
+          ],
+        },
+      },
+      personalCashDebit: {
+        $sum: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$bankOrCash", "Personal Cash"] },
+                { $eq: ["$paymentSource", "Personal Cash"] },
+              ],
+            },
+            "$debit",
+            0,
+          ],
+        },
+      },
+      personalCashCredit: {
+        $sum: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$bankOrCash", "Personal Cash"] },
+                { $eq: ["$paymentSource", "Personal Cash"] },
+              ],
+            },
+            "$credit",
+            0,
+          ],
+        },
+      },
       count: { $sum: 1 },
     },
   });
@@ -172,6 +272,10 @@ export async function getTransactions(
     bankCredit: 0,
     cashDebit: 0,
     cashCredit: 0,
+    personalBankDebit: 0,
+    personalBankCredit: 0,
+    personalCashDebit: 0,
+    personalCashCredit: 0,
     count: 0,
   };
 
@@ -181,6 +285,9 @@ export async function getTransactions(
     netBalance: rawSummary.totalCredit - rawSummary.totalDebit,
     bankBalance: rawSummary.bankCredit - rawSummary.bankDebit,
     cashBalance: rawSummary.cashCredit - rawSummary.cashDebit,
+    personalBankBalance: (rawSummary.personalBankCredit || 0) - (rawSummary.personalBankDebit || 0),
+    personalCashBalance: (rawSummary.personalCashCredit || 0) - (rawSummary.personalCashDebit || 0),
+    personalTotalPaid: (rawSummary.personalBankDebit || 0) + (rawSummary.personalCashDebit || 0),
     totalTransactions: rawSummary.count,
     liquidBalances: {
       bankBalance: rawSummary.bankCredit - rawSummary.bankDebit,
@@ -249,9 +356,23 @@ export async function createTransaction(
     }
   }
 
+  const transactionOrigin = data.transactionOrigin || "COMPANY";
+  const bankOrCash = data.bankOrCash || (transactionOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank");
+  let paymentSource = data.paymentSource;
+  if (!paymentSource) {
+    if (bankOrCash === "Personal Bank") paymentSource = "Personal Bank";
+    else if (bankOrCash === "Personal Cash") paymentSource = "Personal Cash";
+    else if (bankOrCash === "Cash") paymentSource = "Company Cash";
+    else paymentSource = "Company Bank";
+  }
+
   const tx = await Transaction.create({
     ...data,
     accountType: "MAIN",
+    transactionOrigin,
+    bankOrCash,
+    paymentSource,
+    paidBy: data.paidBy?.trim(),
     createdBy: userEmail,
   });
 

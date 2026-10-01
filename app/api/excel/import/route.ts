@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
-    const { rows, accountType, filename } = await req.json();
+    const { rows, accountType, filename, origin } = await req.json();
 
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json(
@@ -15,12 +15,14 @@ export async function POST(req: Request) {
     }
 
     const targetAccountType = "MAIN";
+    const targetOrigin = origin === "PRE_COMPANY" ? "PRE_COMPANY" : "COMPANY";
 
     const result = await importAccountingBatch(
       rows,
       targetAccountType,
       filename || "import.xlsx",
-      user?.email || "System"
+      user?.email || "System",
+      targetOrigin
     );
 
     return NextResponse.json(result);

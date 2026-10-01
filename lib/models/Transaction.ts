@@ -1,16 +1,26 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
 export type AccountType = "MAIN";
+export type TransactionOrigin = "COMPANY" | "PRE_COMPANY";
+export type PaymentSource =
+  | "Company Bank"
+  | "Company Cash"
+  | "Personal Bank"
+  | "Personal Cash"
+  | "Other";
 
 export interface ITransaction extends Document {
   accountType: AccountType;
+  transactionOrigin: TransactionOrigin;
+  paidBy?: string;
+  paymentSource?: PaymentSource | string;
   date: Date;
   description: string;
   category: string;
   debit: number;
   credit: number;
   paymentMode: string;
-  bankOrCash: "Bank" | "Cash" | "N/A";
+  bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
   partyName?: string;
   invoiceOrderId?: string;
   gstApplicable: boolean;
@@ -37,6 +47,20 @@ const TransactionSchema = new Schema<ITransaction>(
       default: "MAIN",
       index: true,
     },
+    transactionOrigin: {
+      type: String,
+      enum: ["COMPANY", "PRE_COMPANY"],
+      required: true,
+      default: "COMPANY",
+      index: true,
+    },
+    paidBy: { type: String, trim: true, index: true },
+    paymentSource: {
+      type: String,
+      enum: ["Company Bank", "Company Cash", "Personal Bank", "Personal Cash", "Other"],
+      default: "Company Bank",
+      index: true,
+    },
     date: { type: Date, required: true, default: Date.now, index: true },
     description: { type: String, required: true, trim: true, index: true },
     category: { type: String, required: true, trim: true, index: true },
@@ -51,7 +75,7 @@ const TransactionSchema = new Schema<ITransaction>(
     },
     bankOrCash: {
       type: String,
-      enum: ["Bank", "Cash", "N/A"],
+      enum: ["Bank", "Cash", "Personal Bank", "Personal Cash", "N/A"],
       required: true,
       default: "Bank",
       index: true,
@@ -79,7 +103,8 @@ const TransactionSchema = new Schema<ITransaction>(
 );
 
 // Compound indexes for high performance querying
-TransactionSchema.index({ accountType: 1, date: -1, isArchived: 1 });
+TransactionSchema.index({ accountType: 1, transactionOrigin: 1, date: -1, isArchived: 1 });
+TransactionSchema.index({ transactionOrigin: 1, date: -1, isArchived: 1 });
 TransactionSchema.index({ bankOrCash: 1, date: -1, isArchived: 1 });
 TransactionSchema.index({ category: 1, date: -1 });
 

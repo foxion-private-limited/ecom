@@ -65,7 +65,7 @@ export default function PurchasesPage() {
               Purchases & Supplier Inward
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Supplier orders, inward inventory movements, and automated Main Accounts debit transactions
+              Supplier orders, inward inventory movements, and automated Accounts debit transactions
             </p>
           </div>
 

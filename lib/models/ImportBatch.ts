@@ -4,6 +4,7 @@ export interface IImportBatch extends Document {
   batchId: string;
   filename: string;
   accountType: "MAIN";
+  origin?: "COMPANY" | "PRE_COMPANY";
   totalRows: number;
   validRows: number;
   importedRows: number;
@@ -24,6 +25,12 @@ const ImportBatchSchema = new Schema<IImportBatch>(
       enum: ["MAIN"],
       required: true,
       default: "MAIN",
+      index: true,
+    },
+    origin: {
+      type: String,
+      enum: ["COMPANY", "PRE_COMPANY"],
+      default: "COMPANY",
       index: true,
     },
     totalRows: { type: Number, required: true },

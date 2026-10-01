@@ -2,7 +2,7 @@
 
 A production-grade, unified business management suite and ERP built for **Foxion** — an ecommerce brand manufacturing and retailing physical consumer goods (rechargeable gas lighters, bluetooth speakers, kitchen appliances, and accessories) across multiple online channels (Amazon, Meesho, Flipkart, Direct Webstore, and Instagram).
 
-The system integrates multi-channel order processing, dynamic inventory valuation with chronological stock movement tracking, procurement invoicing, an interactive spreadsheet ledger editor, single-ledger accounting (Main Accounts), cash/bank liquidity tracking, and operational analytics into a single Next.js 16 + MongoDB architecture.
+The system integrates multi-channel order processing, dynamic inventory valuation with chronological stock movement tracking, procurement invoicing, an interactive spreadsheet ledger editor, single-ledger accounting (Accounts), cash/bank liquidity tracking, pre-company expense tracking, and operational analytics into a single Next.js 16 + MongoDB architecture.
 
 ---
 
@@ -14,6 +14,7 @@ The system integrates multi-channel order processing, dynamic inventory valuatio
 ### System Identity & Architectural Patterns
 - **Unified Single-Tier Application**: Built exclusively with Next.js 16 (App Router) and MongoDB via Mongoose. There are **no** separate backend microservices (no NestJS, Express, or Redis). Server endpoints exist under `app/api/` as Next.js Route Handlers.
 - **Single Accounting Book Architecture**: The accounting engine has exactly **one accounting book: MAIN**. Every accounting transaction belongs to `MAIN`. There are no secondary books, no inter-book transfers, and no dual-book consolidation layers.
+- **Transaction Origins (`COMPANY` vs `PRE_COMPANY`)**: The system supports classifying transactions by origin. Historical transactions that occurred before the official company bank account was opened are classified as `PRE_COMPANY`. Personal payments (Personal Bank / Personal Cash) preserve payment details and `Paid By` without reducing company bank/cash liquidity.
 - **Service Layer Pattern**: All core business logic, database transactions, aggregations, and stock/accounting mutations **must** reside in `lib/services/`. API Route handlers (`app/api/`) and React Server Components act as lightweight controllers delegating to these services.
 - **Zero-Dependency In-Memory DB Fallback**: `lib/db/connection.ts` automatically boots `mongodb-memory-server` if local or remote `MONGODB_URI` connection fails. Local tests and development runs can execute without an external database server running.
 - **Strict Indian Business Calendar Dates (`DD/MM/YYYY`)**:
@@ -26,12 +27,13 @@ The system integrates multi-channel order processing, dynamic inventory valuatio
    - All financial transactions belong to the single `MAIN` account ledger.
    - There is no separate `ECOMMERCE` account book or shared-bank consolidation layer.
 2. **Atomic Multi-Entity Transitions**:
-   - **Sales / Order Placement**: Creates `Order` $\rightarrow$ Deducts `Product.stock` $\rightarrow$ Logs `StockMovement` (type: `SALE`) $\rightarrow$ Creates `Transaction` in `MAIN` account (Credit).
-   - **Order Return**: Restores `Product.stock` $\rightarrow$ Logs `StockMovement` (type: `RETURN`) $\rightarrow$ Creates refund adjustment `Transaction` in `MAIN` account (Debit).
-   - **Inventory Procurement**: Saves `Purchase` invoice $\rightarrow$ Increments `Product.stock` $\rightarrow$ Logs `StockMovement` (type: `PURCHASE`) $\rightarrow$ Creates `Transaction` in `MAIN` account (Debit).
+   - **Sales / Order Placement**: Creates `Order` $\rightarrow$ Deducts `Product.stock` $\rightarrow$ Logs `StockMovement` (type: `SALE`) $\rightarrow$ Creates `Transaction` in Accounts (Credit).
+   - **Order Return**: Restores `Product.stock` $\rightarrow$ Logs `StockMovement` (type: `RETURN`) $\rightarrow$ Creates refund adjustment `Transaction` in Accounts (Debit).
+   - **Inventory Procurement**: Saves `Purchase` invoice $\rightarrow$ Increments `Product.stock` $\rightarrow$ Logs `StockMovement` (type: `PURCHASE`) $\rightarrow$ Creates `Transaction` in Accounts (Debit).
 3. **Liquidity & Balances**:
    $$\text{Current Balance} = \text{Previous Balance} + \text{Credit} - \text{Debit}$$
    $$\text{Total Liquid Capital} = \text{Bank Balance} + \text{Cash Balance}$$
+   *(Note: Pre-company personal payments are excluded from company bank and cash liquid balances).*
 4. **Inventory Audit Integrity**:
    - Never modify `Product.stock` directly without logging an immutable `StockMovement` audit record.
 
@@ -42,12 +44,15 @@ The system integrates multi-channel order processing, dynamic inventory valuatio
 ```text
                     FOXION ACCOUNTS
                           │
-                          ▼
-                    MAIN ACCOUNT
-                          │
-             ┌────────────┴────────────┐
-             │                         │
-        BANK LEDGER               CASH LEDGER
+         ┌────────────────┴────────────────┐
+         ▼                                 ▼
+   COMPANY ACCOUNTS              PRE-COMPANY EXPENSES
+   (Live Bank & Cash)            (Historical / Personal)
+         │                                 │
+   ┌─────┴─────┐                     ┌─────┴─────┐
+   ▼           ▼                     ▼           ▼
+Company     Company               Personal    Personal
+ Bank        Cash                  Bank        Cash
 ```
 
 ```mermaid
@@ -55,7 +60,7 @@ graph TD
     subgraph Ecommerce Operations
         ORD[Customer Orders] -->|Deducts Stock| PROD[Product Inventory]
         ORD -->|Logs SALE| SM[Stock Movements]
-        ORD -->|Credit Sales Revenue| MAIN_BOOK[Foxion Main Accounts]
+        ORD -->|Credit Sales Revenue| MAIN_BOOK[Foxion Accounts]
 
         RET[Returns & Refunds] -->|Restores Stock| PROD
         RET -->|Logs RETURN| SM
@@ -70,8 +75,8 @@ graph TD
     end
 
     subgraph Cash & Bank Liquidity
-        MAIN_BOOK --> BANK[Bank Balance]
-        MAIN_BOOK --> CASH[Cash in Hand]
+        MAIN_BOOK --> BANK[Company Bank Balance]
+        MAIN_BOOK --> CASH[Company Cash in Hand]
         BANK --> LIQ[Total Liquid Capital]
         CASH --> LIQ
     end
@@ -81,8 +86,8 @@ graph TD
 
 ## 🚀 Key Modules & Capabilities
 
-### 1. Main Accounts Ledger (`/accounts/main`)
-- Single unified accounting ledger for all Foxion financial activity:
+### 1. Accounts Ledger (`/accounts/main`)
+- Single unified accounting ledger for all Foxion company financial activity:
   - Product procurement and vendor supplier payments
   - Employee salaries, factory/office rent, and utilities
   - Multi-channel marketplace sales settlements and direct customer revenues
@@ -93,17 +98,23 @@ graph TD
 - Filterable by date range, category, payment mode (`Bank Transfer`, `UPI`, `Cash`, `Marketplace`, etc.), and payment channel (`Bank` vs `Cash`).
 - Inline bill attachment metadata linkage.
 
-### 2. Interactive Excel Spreadsheet Import & In-Table Editor (`/accounts/import`)
+### 2. Pre-Company Transactions (`/accounts/pre-company`)
+- Dedicated view and management for historical business transactions incurred prior to official company bank account establishment.
+- Preserves `Paid By` (e.g. founder/owner name) and personal payment sources (`Personal Bank`, `Personal Cash`).
+- Included in business expense reporting and historical audits without incorrectly reducing current company bank or cash liquidity balances.
+
+### 3. Interactive Excel Spreadsheet Import & In-Table Editor (`/accounts/import`)
 - Full in-table spreadsheet review and editing before committing records into MongoDB.
+- Supports both regular **Accounts** and **Pre-Company Transactions** import batches.
 - **Capabilities**:
   - Drag-and-drop `.xlsx` / `.xls` upload.
   - Inline editable cells with keyboard navigation (`Enter` to save, `Esc` to cancel).
   - Dynamic real-time calculation of running balances upon editing debit or credit values.
   - Row manipulation: `+ Add Row`, `Duplicate Row`, and `Delete Row`.
-  - Live validation engine: Instant cell error highlighting (e.g. invalid date format, missing party, negative amounts).
+  - Live validation engine: Instant cell error highlighting (e.g. invalid date format, missing party, missing `Paid By` for personal payments, negative amounts).
   - Filter by search keyword and `Show Errors Only` toggle.
   - Pre-commit modal displaying summary statistics (total debit, total credit, modified rows, zero-error confirmation).
-  - Atomic persistence directly into Main Accounts with `ImportBatch` audit logs.
+  - Atomic persistence directly into Accounts with `ImportBatch` audit logs.
 
 ### 3. Inventory & Catalog Engine (`/inventory`)
 - **Products Catalog (`/inventory/products`)**: SKU codes, barcodes, cost prices (CP), selling prices (SP), current stock, and min reorder thresholds.
@@ -163,8 +174,9 @@ ecom/
 ├── app/                                 # Next.js 16 App Router
 │   ├── (auth)/login/                    # Authentication login page
 │   ├── accounts/                        # Accounts module
-│   │   ├── main/                        # Single Foxion Main accounts ledger
-│   │   └── import/                      # Interactive Excel import & editor
+│   │   ├── main/                        # Foxion Accounts ledger (Company origin)
+│   │   ├── pre-company/                 # Pre-Company Transactions ledger (Historical origin)
+│   │   └── import/                      # Interactive Excel import & editor (Accounts & Pre-Company)
 │   ├── api/                             # Server API Route Handlers
 │   │   ├── auth/                        # Login, logout, session verification
 │   │   ├── bills/                       # Bill storage and upload

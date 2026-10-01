@@ -9,6 +9,9 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
 
     const accountType = (searchParams.get("accountType") as any) || "ALL";
+    const transactionOrigin = ((searchParams.get("transactionOrigin") || searchParams.get("origin")) as any) || undefined;
+    const paymentSource = searchParams.get("paymentSource") || undefined;
+    const paidBy = searchParams.get("paidBy") || undefined;
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
     const category = searchParams.get("category") || undefined;
@@ -21,6 +24,9 @@ export async function GET(req: Request) {
 
     const result = await getTransactions({
       accountType,
+      transactionOrigin,
+      paymentSource,
+      paidBy,
       startDate,
       endDate,
       category,

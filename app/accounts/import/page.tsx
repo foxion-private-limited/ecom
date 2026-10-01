@@ -49,7 +49,13 @@ const PAYMENT_MODES = [
   "Other",
 ];
 
-const BANK_CASH_OPTIONS: Array<"Bank" | "Cash" | "N/A"> = ["Bank", "Cash", "N/A"];
+const BANK_CASH_OPTIONS: Array<"Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A"> = [
+  "Personal Bank",
+  "Personal Cash",
+  "Bank",
+  "Cash",
+  "N/A",
+];
 
 function calculateRunningBalances(rows: EditableImportRow[]): EditableImportRow[] {
   let running = 0;
@@ -67,9 +73,12 @@ function calculateRunningBalances(rows: EditableImportRow[]): EditableImportRow[
 
 function ExcelImportContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Navigation and Account Context (Single Main Accounts System)
+  // Navigation and Account Context (Single Accounts System)
   const accountType = "MAIN";
+  const initialOrigin = searchParams.get("origin") === "PRE_COMPANY" ? "PRE_COMPANY" : "COMPANY";
+  const [importOrigin, setImportOrigin] = useState<"COMPANY" | "PRE_COMPANY">(initialOrigin);
 
   // Workflow steps: 1. UPLOAD, 2. EDIT_PREVIEW, 3. SUCCESS
   const [currentStep, setCurrentStep] = useState<"UPLOAD" | "PREVIEW" | "SUCCESS">("UPLOAD");
@@ -104,6 +113,7 @@ function ExcelImportContent() {
     importedCount: number;
     modifiedCount: number;
     accountType: string;
+    origin?: string;
   } | null>(null);
 
   // Fetch categories on mount
@@ -128,6 +138,7 @@ function ExcelImportContent() {
       try {
         const formData = new FormData();
         formData.append("file", selectedFile);
+        formData.append("origin", importOrigin);
 
         const res = await fetch("/api/excel/validate", {
           method: "POST",
@@ -141,6 +152,7 @@ function ExcelImportContent() {
 
         const summary = data.summary;
         setOriginalRowCount(summary.totalRows);
+        const isPre = importOrigin === "PRE_COMPANY";
 
         // Convert parsed rows into EditableImportRow array
         const initialRows: EditableImportRow[] = summary.rows.map(
@@ -150,16 +162,26 @@ function ExcelImportContent() {
             const dateStr = formatIndianDate(parsedDate);
             const debit = Number(raw.debit) || 0;
             const credit = Number(raw.credit) || 0;
+            const paidBy = String(raw.paidBy || "").trim();
+            const bankOrCash = (raw.bankOrCash as any) || (isPre ? "Personal Bank" : "Bank");
+            const paymentSource = (raw.paymentSource as any) || (isPre ? "Personal Bank" : "Company Bank");
 
-            const validation = validateSingleRow({
-              date: dateStr,
-              description: String(raw.description || ""),
-              category: String(raw.category || ""),
-              debit,
-              credit,
-              gstAmount: Number(raw.gstAmount) || 0,
-              tdsTcsAmount: Number(raw.tdsTcsAmount) || 0,
-            });
+            const validation = validateSingleRow(
+              {
+                date: dateStr,
+                description: String(raw.description || ""),
+                category: String(raw.category || ""),
+                debit,
+                credit,
+                bankOrCash,
+                paymentSource,
+                paidBy,
+                transactionOrigin: importOrigin,
+                gstAmount: Number(raw.gstAmount) || 0,
+                tdsTcsAmount: Number(raw.tdsTcsAmount) || 0,
+              },
+              { origin: importOrigin }
+            );
 
             return {
               id: `row-${idx + 1}-${Date.now()}`,
@@ -170,9 +192,12 @@ function ExcelImportContent() {
               category: String(raw.category || "").trim(),
               debit,
               credit,
-              paymentMode: String(raw.paymentMode || "Bank Transfer"),
-              bankOrCash: (raw.bankOrCash as "Bank" | "Cash" | "N/A") || "Bank",
+              paymentMode: String(raw.paymentMode || (bankOrCash.includes("Cash") ? "Cash" : isPre ? "UPI" : "Bank Transfer")),
+              bankOrCash,
+              paymentSource,
+              transactionOrigin: importOrigin,
               partyName: String(raw.partyName || "").trim(),
+              paidBy,
               invoiceOrderId: String(raw.invoiceOrderId || "").trim(),
               gstApplicable: !!raw.gstApplicable,
               gstAmount: Number(raw.gstAmount) || 0,
@@ -197,7 +222,6 @@ function ExcelImportContent() {
         toast.success(`Parsed ${balancedRows.length} rows ready for review.`);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to parse file";
-        toast.error(message);
       } finally {
         setParsing(false);
       }
@@ -206,15 +230,22 @@ function ExcelImportContent() {
 
   // Revalidate a specific row after edit
   const revalidateRow = (row: EditableImportRow): EditableImportRow => {
-    const validation = validateSingleRow({
-      date: row.date,
-      description: row.description,
-      category: row.category,
-      debit: row.debit,
-      credit: row.credit,
-      gstAmount: row.gstAmount,
-      tdsTcsAmount: row.tdsTcsAmount,
-    });
+    const validation = validateSingleRow(
+      {
+        date: row.date,
+        description: row.description,
+        category: row.category,
+        debit: row.debit,
+        credit: row.credit,
+        bankOrCash: row.bankOrCash,
+        paymentSource: row.paymentSource,
+        paidBy: row.paidBy,
+        transactionOrigin: row.transactionOrigin || importOrigin,
+        gstAmount: row.gstAmount,
+        tdsTcsAmount: row.tdsTcsAmount,
+      },
+      { origin: importOrigin }
+    );
 
     return {
       ...row,
@@ -268,18 +299,22 @@ function ExcelImportContent() {
   // Add Row
   const handleAddRow = () => {
     const todayStr = formatIndianDate(new Date());
+    const isPre = importOrigin === "PRE_COMPANY";
     const newRow: EditableImportRow = {
       id: `new-row-${Date.now()}`,
       slNo: rows.length + 1,
       date: todayStr,
       rawDate: new Date(),
-      description: "Manual Transaction Entry",
-      category: categories[0] || "General",
+      description: isPre ? "Advance for company registration" : "Manual Transaction Entry",
+      category: isPre ? "Registration Expense" : categories[0] || "General",
       debit: 0,
-      credit: 100,
-      paymentMode: "Bank Transfer",
-      bankOrCash: "Bank",
+      credit: isPre ? 0 : 100,
+      paymentMode: isPre ? "UPI" : "Bank Transfer",
+      bankOrCash: isPre ? "Personal Bank" : "Bank",
+      paymentSource: isPre ? "Personal Bank" : "Company Bank",
+      transactionOrigin: importOrigin,
       partyName: "",
+      paidBy: isPre ? "Alan Nixon" : "",
       invoiceOrderId: "",
       gstApplicable: false,
       gstAmount: 0,
@@ -373,6 +408,7 @@ function ExcelImportContent() {
       return (
         r.description.toLowerCase().includes(q) ||
         r.partyName.toLowerCase().includes(q) ||
+        (r.paidBy && r.paidBy.toLowerCase().includes(q)) ||
         r.invoiceOrderId.toLowerCase().includes(q) ||
         r.category.toLowerCase().includes(q) ||
         r.paymentMode.toLowerCase().includes(q)
@@ -405,7 +441,10 @@ function ExcelImportContent() {
         credit: r.credit,
         paymentMode: r.paymentMode,
         bankOrCash: r.bankOrCash,
+        paymentSource: r.paymentSource,
+        transactionOrigin: r.transactionOrigin || importOrigin,
         partyName: r.partyName,
+        paidBy: r.paidBy,
         invoiceOrderId: r.invoiceOrderId,
         gstApplicable: r.gstApplicable,
         gstAmount: r.gstAmount,
@@ -420,7 +459,8 @@ function ExcelImportContent() {
         body: JSON.stringify({
           rows: payloadRows,
           accountType,
-          filename: file?.name || "foxion_accounting.xlsx",
+          origin: importOrigin,
+          filename: file?.name || (importOrigin === "PRE_COMPANY" ? "pre_company_transactions.xlsx" : "foxion_accounting.xlsx"),
         }),
       });
 
@@ -434,9 +474,14 @@ function ExcelImportContent() {
         importedCount: data.importedCount,
         modifiedCount: summaryMetrics.modifiedCount,
         accountType,
+        origin: importOrigin,
       });
       setCurrentStep("SUCCESS");
-      toast.success("Excel import completed successfully!");
+      toast.success(
+        importOrigin === "PRE_COMPANY"
+          ? "Pre-Company transactions imported successfully!"
+          : "Excel import completed successfully!"
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Import execution failed";
       toast.error(message);
@@ -450,6 +495,32 @@ function ExcelImportContent() {
       {/* Step 1: Upload View */}
       {currentStep === "UPLOAD" && (
         <div className="max-w-3xl mx-auto space-y-6">
+          {/* Destination Selector */}
+          <div className="flex items-center justify-center gap-2 p-1.5 bg-slate-900 border border-slate-800 rounded-xl w-fit mx-auto">
+            <button
+              type="button"
+              onClick={() => setImportOrigin("COMPANY")}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                importOrigin === "COMPANY"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Accounts
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportOrigin("PRE_COMPANY")}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                importOrigin === "PRE_COMPANY"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Pre-Company Transactions
+            </button>
+          </div>
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
@@ -460,16 +531,25 @@ function ExcelImportContent() {
               </button>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-white">
-                  Import Accounts from Excel
+                  {importOrigin === "PRE_COMPANY"
+                    ? "Import Pre-Company Transactions"
+                    : "Import Accounts from Excel"}
                 </h1>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Upload `.xlsx` or `.xls` spreadsheet with interactive review & editing into Foxion Main Accounts
+                  {importOrigin === "PRE_COMPANY"
+                    ? "Upload historical spreadsheet records (.xlsx, .xls) prior to company incorporation with interactive review & editing"
+                    : "Upload `.xlsx` or `.xls` spreadsheet with interactive review & editing into Foxion Accounts"}
                 </p>
               </div>
             </div>
 
-            <Badge variant="info" className="text-xs px-3 py-1">
-              Main Accounts Ledger
+            <Badge
+              variant={importOrigin === "PRE_COMPANY" ? "warning" : "info"}
+              className="text-xs px-3 py-1 uppercase tracking-wider font-semibold"
+            >
+              {importOrigin === "PRE_COMPANY"
+                ? "Pre-Company Ledger"
+                : "Accounts Ledger"}
             </Badge>
           </div>
 
@@ -490,7 +570,9 @@ function ExcelImportContent() {
                 {file ? file.name : "Click to select or drag and drop Excel spreadsheet"}
               </span>
               <span className="text-xs text-slate-400 mt-2 max-w-sm">
-                Foxion standard 16-column accounting template (Sl No, Date, Description, Category, Debit, Credit, Payment Mode, Bank/Cash, Party, Invoice/orderId, GST, Balance, Remarks, Bill)
+                {importOrigin === "PRE_COMPANY"
+                  ? "Standard columns: Sl No, Date, Description, Category, Income/Expense, Debit, Credit, Payment Mode, Bank/Cash, Party Name, Paid By, Invoice/Order ID, GST, TDS/TCS, Remarks, Bill"
+                  : "Foxion standard accounting template: Sl No, Date, Description, Category, Debit, Credit, Payment Mode, Bank/Cash, Party, Invoice/orderId, GST, Balance, Remarks, Bill"}
               </span>
             </label>
           </Card>
@@ -528,10 +610,17 @@ function ExcelImportContent() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-2xl font-bold tracking-tight text-white">
-                    Editable Import Preview
+                    {importOrigin === "PRE_COMPANY"
+                      ? "Pre-Company Transactions Import"
+                      : "Editable Import Preview"}
                   </h1>
-                  <Badge variant="info" className="text-[10px]">
-                    Main Accounts
+                  <Badge
+                    variant={importOrigin === "PRE_COMPANY" ? "warning" : "info"}
+                    className="text-[10px]"
+                  >
+                    {importOrigin === "PRE_COMPANY"
+                      ? "Pre-Company"
+                      : "Accounts"}
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -675,6 +764,13 @@ function ExcelImportContent() {
                     <th className="py-2.5 px-3 min-w-[120px]">Payment Mode</th>
                     <th className="py-2.5 px-3 min-w-[90px]">Bank/Cash</th>
                     <th className="py-2.5 px-3 min-w-[130px]">Party Name</th>
+                    <th className="py-2.5 px-3 min-w-[130px]">
+                      {importOrigin === "PRE_COMPANY" ? (
+                        <span className="text-amber-400">Paid By *</span>
+                      ) : (
+                        "Paid By"
+                      )}
+                    </th>
                     <th className="py-2.5 px-3 min-w-[110px]">Invoice/orderId</th>
                     <th className="py-2.5 px-2 text-center min-w-[60px]">GST</th>
                     <th className="py-2.5 px-3 text-right min-w-[90px]">GST Amt</th>
@@ -687,7 +783,7 @@ function ExcelImportContent() {
                 <tbody className="divide-y divide-slate-800/70">
                   {paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={17} className="py-12 text-center text-slate-400">
+                      <td colSpan={18} className="py-12 text-center text-slate-400">
                         No rows match your current search or error filter.
                       </td>
                     </tr>
@@ -994,6 +1090,44 @@ function ExcelImportContent() {
                             )}
                           </td>
 
+                          {/* Paid By */}
+                          <td
+                            onClick={() => startEditing(row.id, "paidBy", row.paidBy || "")}
+                            className={`py-2 px-3 whitespace-nowrap cursor-pointer ${
+                              importOrigin === "PRE_COMPANY" &&
+                              (!row.paidBy || !row.paidBy.trim()) &&
+                              (row.bankOrCash === "Personal Bank" || row.bankOrCash === "Personal Cash")
+                                ? "bg-rose-950/40 text-rose-300 font-semibold"
+                                : "text-slate-300"
+                            }`}
+                          >
+                            {isEditing("paidBy") ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={String(editTempValue)}
+                                onChange={(e) => setEditTempValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveEditing();
+                                  if (e.key === "Escape") cancelEditing();
+                                }}
+                                className="h-7 w-28 bg-slate-950 border border-blue-500 px-1.5 rounded text-xs text-white"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span>
+                                {row.paidBy ? (
+                                  row.paidBy
+                                ) : importOrigin === "PRE_COMPANY" &&
+                                  (row.bankOrCash === "Personal Bank" || row.bankOrCash === "Personal Cash") ? (
+                                  <span className="text-amber-400 italic text-[10px]">Required</span>
+                                ) : (
+                                  "—"
+                                )}
+                              </span>
+                            )}
+                          </td>
+
                           {/* 11. Invoice / Order ID */}
                           <td
                             onClick={() => startEditing(row.id, "invoiceOrderId", row.invoiceOrderId)}
@@ -1206,9 +1340,9 @@ function ExcelImportContent() {
 
           <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2 text-xs">
             <div className="flex justify-between text-slate-400">
-              <span>Destination Account:</span>
+              <span>Destination:</span>
               <span className="font-semibold text-white">
-                Main Accounts
+                {importOrigin === "PRE_COMPANY" ? "Pre-Company Transactions" : "Accounts"}
               </span>
             </div>
             <div className="flex justify-between text-slate-400">
@@ -1234,9 +1368,18 @@ function ExcelImportContent() {
 
             <Button
               variant="primary"
-              onClick={() => router.push("/accounts/main")}
+              onClick={() =>
+                router.push(
+                  importOrigin === "PRE_COMPANY"
+                    ? "/accounts/pre-company"
+                    : "/accounts/main"
+                )
+              }
             >
-              View Accounts <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              {importOrigin === "PRE_COMPANY"
+                ? "View Pre-Company Transactions"
+                : "View Accounts"}{" "}
+              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
             </Button>
           </div>
         </Card>
@@ -1259,9 +1402,11 @@ function ExcelImportContent() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Account Book:</span>
+              <span className="text-slate-400">Classification:</span>
               <span className="font-semibold text-blue-400">
-                Main Accounts
+                {importOrigin === "PRE_COMPANY"
+                  ? "Pre-Company Transactions"
+                  : "Accounts"}
               </span>
             </div>
             <div className="flex justify-between">

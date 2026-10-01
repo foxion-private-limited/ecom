@@ -8,6 +8,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
 
     const accountType = searchParams.get("accountType") || "ALL";
+    const origin = searchParams.get("origin") || searchParams.get("transactionOrigin") || undefined;
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
     const category = searchParams.get("category") || undefined;
@@ -15,6 +16,14 @@ export async function GET(req: Request) {
     await connectDB();
 
     const query: any = { isArchived: { $ne: true }, accountType: "MAIN" };
+
+    if (origin && origin !== "ALL") {
+      if (origin === "PRE_COMPANY") {
+        query.transactionOrigin = "PRE_COMPANY";
+      } else {
+        query.$or = [{ transactionOrigin: "COMPANY" }, { transactionOrigin: { $exists: false } }];
+      }
+    }
 
     if (startDate || endDate) {
       query.date = {};
@@ -34,11 +43,14 @@ export async function GET(req: Request) {
       .sort({ date: 1, createdAt: 1 })
       .lean();
 
-    const title = "Foxion_Main_Accounts";
+    const isPreCompany = origin === "PRE_COMPANY";
+    const title = isPreCompany ? "Foxion Pre-Company Transactions" : "Foxion Accounts";
     const buffer = generateAccountingExcel(transactions as any, title);
 
     const nowStr = new Date().toISOString().slice(0, 10);
-    const filename = `Foxion_Main_Accounts_${nowStr}.xlsx`;
+    const filename = isPreCompany
+      ? `Foxion_Pre_Company_Transactions_${nowStr}.xlsx`
+      : `Foxion_Accounts_${nowStr}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

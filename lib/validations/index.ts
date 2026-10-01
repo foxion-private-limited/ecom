@@ -3,13 +3,20 @@ import { z } from "zod";
 export const transactionSchema = z
   .object({
     accountType: z.enum(["MAIN"]).default("MAIN"),
+    transactionOrigin: z.enum(["COMPANY", "PRE_COMPANY"]).default("COMPANY"),
+    paidBy: z.string().optional().default(""),
+    paymentSource: z
+      .enum(["Company Bank", "Company Cash", "Personal Bank", "Personal Cash", "Other"])
+      .optional(),
     date: z.coerce.date(),
     description: z.string().min(1, "Description is required").trim(),
     category: z.string().min(1, "Category is required").trim(),
     debit: z.coerce.number().min(0, "Debit cannot be negative").default(0),
     credit: z.coerce.number().min(0, "Credit cannot be negative").default(0),
     paymentMode: z.string().min(1, "Payment mode is required").default("Bank Transfer"),
-    bankOrCash: z.enum(["Bank", "Cash", "N/A"]).default("Bank"),
+    bankOrCash: z
+      .enum(["Bank", "Cash", "Personal Bank", "Personal Cash", "N/A"])
+      .default("Bank"),
     partyName: z.string().optional().default(""),
     invoiceOrderId: z.string().optional().default(""),
     gstApplicable: z.boolean().default(false),
@@ -22,7 +29,24 @@ export const transactionSchema = z
   .refine((data) => data.debit > 0 || data.credit > 0, {
     message: "Either Debit or Credit must be greater than 0",
     path: ["debit"],
-  });
+  })
+  .refine(
+    (data) => {
+      const isPersonal =
+        data.paymentSource === "Personal Bank" ||
+        data.paymentSource === "Personal Cash" ||
+        data.bankOrCash === "Personal Bank" ||
+        data.bankOrCash === "Personal Cash";
+      if (data.transactionOrigin === "PRE_COMPANY" && isPersonal) {
+        return !!data.paidBy && data.paidBy.trim().length > 0;
+      }
+      return true;
+    },
+    {
+      message: "Paid By is required for personal payments",
+      path: ["paidBy"],
+    }
+  );
 
 export type TransactionFormData = z.infer<typeof transactionSchema>;
 
