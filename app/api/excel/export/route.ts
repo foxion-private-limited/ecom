@@ -27,11 +27,25 @@ export async function GET(req: Request) {
 
     if (startDate || endDate) {
       query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate);
+      if (startDate) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+          const [sYear, sMonth, sDay] = startDate.split("-").map(Number);
+          query.date.$gte = new Date(Date.UTC(sYear, sMonth - 1, sDay, 0, 0, 0, 0));
+        } else {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          query.date.$gte = start;
+        }
+      }
       if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.date.$lte = end;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+          const [eYear, eMonth, eDay] = endDate.split("-").map(Number);
+          query.date.$lte = new Date(Date.UTC(eYear, eMonth - 1, eDay, 23, 59, 59, 999));
+        } else {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          query.date.$lte = end;
+        }
       }
     }
 
@@ -42,6 +56,13 @@ export async function GET(req: Request) {
     const transactions = await Transaction.find(query)
       .sort({ date: 1, createdAt: 1 })
       .lean();
+
+    if (transactions.length === 0) {
+      return NextResponse.json(
+        { error: "No transactions found matching the selected export criteria" },
+        { status: 404 }
+      );
+    }
 
     const isPreCompany = origin === "PRE_COMPANY";
     const title = isPreCompany ? "Foxion Pre-Company Transactions" : "Foxion Accounts";
@@ -58,6 +79,8 @@ export async function GET(req: Request) {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,
+        "X-Export-Count": String(transactions.length),
+        "Access-Control-Expose-Headers": "Content-Disposition, X-Export-Count",
       },
     });
   } catch (error: any) {

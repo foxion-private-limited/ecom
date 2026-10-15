@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { formatINR, formatIndianDate } from "@/lib/utils";
 import { TransactionFormModal } from "./TransactionFormModal";
+import { TransactionDetailsModal } from "./TransactionDetailsModal";
+import { ExportScopeModal } from "./ExportScopeModal";
 import { AccountType } from "@/lib/models/Transaction";
 import { toast } from "sonner";
 
@@ -80,6 +82,8 @@ export function AccountsLedgerView({
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedTxForDetails, setSelectedTxForDetails] = useState<any | null>(null);
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
@@ -192,7 +196,7 @@ export function AccountsLedgerView({
             </Button>
           </Link>
 
-          <Button variant="outline" onClick={handleExport}>
+          <Button variant="outline" onClick={() => setIsExportModalOpen(true)}>
             <Download className="w-4 h-4 mr-1.5 text-blue-400" />
             Export Excel
           </Button>
@@ -415,7 +419,10 @@ export function AccountsLedgerView({
                       <Button
                         size="sm"
                         variant="primary"
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={() => {
+                          setEditingTransaction(null);
+                          setIsModalOpen(true);
+                        }}
                       >
                         <Plus className="w-3.5 h-3.5 mr-1" />
                         {isPreCompany ? "Add Pre-Company Transaction" : "Add First Transaction"}
@@ -504,6 +511,14 @@ export function AccountsLedgerView({
                     <td className="py-3 px-3 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100">
                         <button
+                          onClick={() => setSelectedTxForDetails(tx)}
+                          className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-cyan-400 transition-colors"
+                          title="View Details"
+                          aria-label="View Details"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
                           onClick={() => {
                             setEditingTransaction(tx);
                             setIsModalOpen(true);
@@ -565,11 +580,30 @@ export function AccountsLedgerView({
       {/* Add / Edit Transaction Modal */}
       <TransactionFormModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingTransaction(null);
+        }}
         onSuccess={fetchTransactions}
         defaultAccountType={accountType}
         defaultOrigin={isPreCompany ? "PRE_COMPANY" : "COMPANY"}
         initialData={editingTransaction}
+      />
+
+      {/* View Transaction Details Modal */}
+      <TransactionDetailsModal
+        isOpen={Boolean(selectedTxForDetails)}
+        onClose={() => setSelectedTxForDetails(null)}
+        transaction={selectedTxForDetails}
+      />
+
+      {/* Export Scope Modal */}
+      <ExportScopeModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        accountType={accountType}
+        origin={origin}
+        activeCategory={category !== "ALL" ? category : undefined}
       />
     </div>
   );

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Modal, Button, Input, Select } from "@/lib/ui";
+import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 interface TransactionModalProps {
@@ -10,7 +11,63 @@ interface TransactionModalProps {
   onSuccess: () => void;
   defaultAccountType?: string;
   defaultOrigin?: "COMPANY" | "PRE_COMPANY";
-  initialData?: any;
+  initialData?: TransactionFormInitialData | null;
+}
+
+export interface TransactionFormInitialData {
+  _id?: string;
+  transactionOrigin?: "COMPANY" | "PRE_COMPANY";
+  debit?: number;
+  credit?: number;
+  date?: string | Date;
+  description?: string;
+  category?: string;
+  paymentMode?: string;
+  bankOrCash?: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
+  paidBy?: string;
+  partyName?: string;
+  invoiceOrderId?: string;
+  gstApplicable?: boolean;
+  gstAmount?: number;
+  tdsTcsAmount?: number;
+  remarks?: string;
+  [key: string]: unknown;
+}
+
+interface FormSnapshot {
+  origin: "COMPANY" | "PRE_COMPANY";
+  entryType: "DEBIT" | "CREDIT";
+  amount: string;
+  date: string;
+  description: string;
+  category: string;
+  paymentMode: string;
+  bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
+  paidBy: string;
+  partyName: string;
+  invoiceOrderId: string;
+  gstApplicable: boolean;
+  gstAmount: string;
+  tdsTcsAmount: string;
+  remarks: string;
+}
+
+interface CategoryOption {
+  _id: string;
+  name: string;
+}
+
+function parseDateForInput(d?: string | Date): string {
+  if (!d) return new Date().toISOString().slice(0, 10);
+  try {
+    const parsed = new Date(d);
+    if (isNaN(parsed.getTime())) {
+      return new Date().toISOString().slice(0, 10);
+    }
+    return parsed.toISOString().slice(0, 10);
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
 }
 
 export function TransactionFormModal({
@@ -37,57 +94,215 @@ export function TransactionFormModal({
   const [tdsTcsAmount, setTdsTcsAmount] = useState<string>("0");
   const [remarks, setRemarks] = useState("");
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
 
+  // Dirty-state & Discard confirmation state
+  const [initialSnapshot, setInitialSnapshot] = useState<FormSnapshot | null>(null);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  // Initialize form state and snapshot whenever modal opens or switching transactions
   useEffect(() => {
     if (isOpen) {
-      if (initialData) {
-        setOrigin(initialData.transactionOrigin || defaultOrigin);
-        setEntryType(initialData.debit > 0 ? "DEBIT" : "CREDIT");
-        setAmount(String(initialData.debit > 0 ? initialData.debit : initialData.credit));
-        setDate(new Date(initialData.date).toISOString().slice(0, 10));
-        setDescription(initialData.description || "");
-        setCategory(initialData.category || "");
-        setPaymentMode(initialData.paymentMode || (initialData.transactionOrigin === "PRE_COMPANY" ? "UPI" : "Bank Transfer"));
-        setBankOrCash(initialData.bankOrCash || (initialData.transactionOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank"));
-        setPaidBy(initialData.paidBy || "");
-        setPartyName(initialData.partyName || "");
-        setInvoiceOrderId(initialData.invoiceOrderId || "");
-        setGstApplicable(!!initialData.gstApplicable);
-        setGstAmount(String(initialData.gstAmount || 0));
-        setTdsTcsAmount(String(initialData.tdsTcsAmount || 0));
-        setRemarks(initialData.remarks || "");
-      } else {
-        // Reset defaults
-        const currentOrigin = defaultOrigin;
-        setOrigin(currentOrigin);
-        setEntryType("DEBIT");
-        setAmount("");
-        setDate(new Date().toISOString().slice(0, 10));
-        setDescription("");
-        setCategory(currentOrigin === "PRE_COMPANY" ? "Registration Expense" : "");
-        setPaymentMode(currentOrigin === "PRE_COMPANY" ? "UPI" : "Bank Transfer");
-        setBankOrCash(currentOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank");
-        setPaidBy("");
-        setPartyName("");
-        setInvoiceOrderId("");
-        setGstApplicable(false);
-        setGstAmount("0");
-        setTdsTcsAmount("0");
-        setRemarks("");
-      }
+      const snap: FormSnapshot = initialData
+        ? {
+            origin: initialData.transactionOrigin || defaultOrigin,
+            entryType: (initialData.debit ?? 0) > 0 ? "DEBIT" : "CREDIT",
+            amount: String(
+              (initialData.debit ?? 0) > 0
+                ? initialData.debit
+                : initialData.credit !== undefined && initialData.credit !== null && initialData.credit > 0
+                ? initialData.credit
+                : ""
+            ),
+            date: parseDateForInput(initialData.date),
+            description: initialData.description || "",
+            category: initialData.category || "",
+            paymentMode:
+              initialData.paymentMode ||
+              (initialData.transactionOrigin === "PRE_COMPANY" ? "UPI" : "Bank Transfer"),
+            bankOrCash:
+              initialData.bankOrCash ||
+              (initialData.transactionOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank"),
+            paidBy: initialData.paidBy || "",
+            partyName: initialData.partyName || "",
+            invoiceOrderId: initialData.invoiceOrderId || "",
+            gstApplicable: !!initialData.gstApplicable,
+            gstAmount: String(initialData.gstAmount || 0),
+            tdsTcsAmount: String(initialData.tdsTcsAmount || 0),
+            remarks: initialData.remarks || "",
+          }
+        : {
+            origin: defaultOrigin,
+            entryType: "DEBIT",
+            amount: "",
+            date: new Date().toISOString().slice(0, 10),
+            description: "",
+            category: defaultOrigin === "PRE_COMPANY" ? "Registration Expense" : "",
+            paymentMode: defaultOrigin === "PRE_COMPANY" ? "UPI" : "Bank Transfer",
+            bankOrCash: defaultOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank",
+            paidBy: "",
+            partyName: "",
+            invoiceOrderId: "",
+            gstApplicable: false,
+            gstAmount: "0",
+            tdsTcsAmount: "0",
+            remarks: "",
+          };
+
+      setInitialSnapshot(snap);
+      setShowDiscardConfirm(false);
+
+      setOrigin(snap.origin);
+      setEntryType(snap.entryType);
+      setAmount(snap.amount);
+      setDate(snap.date);
+      setDescription(snap.description);
+      setCategory(snap.category);
+      setPaymentMode(snap.paymentMode);
+      setBankOrCash(snap.bankOrCash);
+      setPaidBy(snap.paidBy);
+      setPartyName(snap.partyName);
+      setInvoiceOrderId(snap.invoiceOrderId);
+      setGstApplicable(snap.gstApplicable);
+      setGstAmount(snap.gstAmount);
+      setTdsTcsAmount(snap.tdsTcsAmount);
+      setRemarks(snap.remarks);
 
       // Fetch dynamic categories
       fetch("/api/categories")
         .then((res) => res.json())
-        .then((data) => {
+        .then((data: unknown) => {
           if (Array.isArray(data)) {
-            setCategories(data);
+            setCategories(data as CategoryOption[]);
           }
         })
         .catch(() => {});
+    } else {
+      setShowDiscardConfirm(false);
     }
   }, [isOpen, initialData, defaultOrigin]);
+
+  // Compute accurate dirty state
+  const isDirty = useMemo(() => {
+    if (!initialSnapshot) return false;
+
+    // Amount comparison
+    const isAmountDirty = () => {
+      const curTrim = amount.trim();
+      const initTrim = initialSnapshot.amount.trim();
+      if (curTrim === initTrim) return false;
+      if (!curTrim || !initTrim) return true;
+      const curNum = parseFloat(curTrim);
+      const initNum = parseFloat(initTrim);
+      if (isNaN(curNum) || isNaN(initNum)) return curTrim !== initTrim;
+      return Math.abs(curNum - initNum) > 0.0001;
+    };
+
+    // GST amount comparison
+    const isGstDirty = () => {
+      if (gstApplicable !== initialSnapshot.gstApplicable) return true;
+      if (!gstApplicable) return false;
+      const curTrim = gstAmount.trim();
+      const initTrim = initialSnapshot.gstAmount.trim();
+      if (curTrim === initTrim) return false;
+      const curNum = parseFloat(curTrim) || 0;
+      const initNum = parseFloat(initTrim) || 0;
+      return Math.abs(curNum - initNum) > 0.0001;
+    };
+
+    // TDS/TCS amount comparison
+    const isTdsDirty = () => {
+      if (gstApplicable !== initialSnapshot.gstApplicable) return true;
+      if (!gstApplicable) return false;
+      const curTrim = tdsTcsAmount.trim();
+      const initTrim = initialSnapshot.tdsTcsAmount.trim();
+      if (curTrim === initTrim) return false;
+      const curNum = parseFloat(curTrim) || 0;
+      const initNum = parseFloat(initTrim) || 0;
+      return Math.abs(curNum - initNum) > 0.0001;
+    };
+
+    return (
+      origin !== initialSnapshot.origin ||
+      entryType !== initialSnapshot.entryType ||
+      isAmountDirty() ||
+      date !== initialSnapshot.date ||
+      description.trim() !== initialSnapshot.description.trim() ||
+      category.trim() !== initialSnapshot.category.trim() ||
+      paymentMode !== initialSnapshot.paymentMode ||
+      bankOrCash !== initialSnapshot.bankOrCash ||
+      paidBy.trim() !== initialSnapshot.paidBy.trim() ||
+      partyName.trim() !== initialSnapshot.partyName.trim() ||
+      invoiceOrderId.trim() !== initialSnapshot.invoiceOrderId.trim() ||
+      isGstDirty() ||
+      isTdsDirty() ||
+      remarks.trim() !== initialSnapshot.remarks.trim()
+    );
+  }, [
+    initialSnapshot,
+    origin,
+    entryType,
+    amount,
+    date,
+    description,
+    category,
+    paymentMode,
+    bankOrCash,
+    paidBy,
+    partyName,
+    invoiceOrderId,
+    gstApplicable,
+    gstAmount,
+    tdsTcsAmount,
+    remarks,
+  ]);
+
+  // Handle close attempts safely
+  const handleAttemptClose = () => {
+    if (isDirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const handleConfirmDiscard = () => {
+    setShowDiscardConfirm(false);
+    if (initialSnapshot) {
+      setOrigin(initialSnapshot.origin);
+      setEntryType(initialSnapshot.entryType);
+      setAmount(initialSnapshot.amount);
+      setDate(initialSnapshot.date);
+      setDescription(initialSnapshot.description);
+      setCategory(initialSnapshot.category);
+      setPaymentMode(initialSnapshot.paymentMode);
+      setBankOrCash(initialSnapshot.bankOrCash);
+      setPaidBy(initialSnapshot.paidBy);
+      setPartyName(initialSnapshot.partyName);
+      setInvoiceOrderId(initialSnapshot.invoiceOrderId);
+      setGstApplicable(initialSnapshot.gstApplicable);
+      setGstAmount(initialSnapshot.gstAmount);
+      setTdsTcsAmount(initialSnapshot.tdsTcsAmount);
+      setRemarks(initialSnapshot.remarks);
+    }
+    onClose();
+  };
+
+  // Intercept Escape key when discard confirmation dialog is open
+  useEffect(() => {
+    if (!showDiscardConfirm) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        setShowDiscardConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+    };
+  }, [showDiscardConfirm]);
 
   const isPersonalPayment =
     bankOrCash === "Personal Bank" || bankOrCash === "Personal Cash";
@@ -171,9 +386,9 @@ export function TransactionFormModal({
           : "Transaction added successfully"
       );
       onSuccess();
-      onClose();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save transaction");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save transaction";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -182,9 +397,10 @@ export function TransactionFormModal({
   const isPreCompany = origin === "PRE_COMPANY";
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={handleAttemptClose}
       title={
         initialData
           ? isPreCompany
@@ -337,7 +553,9 @@ export function TransactionFormModal({
           <Select
             label="Payment Source / Account"
             value={bankOrCash}
-            onChange={(e) => setBankOrCash(e.target.value as any)}
+            onChange={(e) =>
+              setBankOrCash(e.target.value as "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A")
+            }
             options={
               isPreCompany
                 ? [
@@ -421,7 +639,7 @@ export function TransactionFormModal({
 
         {/* Action buttons */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={handleAttemptClose}>
             Cancel
           </Button>
           <Button type="submit" variant="primary" loading={loading}>
@@ -434,5 +652,57 @@ export function TransactionFormModal({
         </div>
       </form>
     </Modal>
+
+    {/* Confirmation Dialog before Discarding Unsaved Changes */}
+    {showDiscardConfirm && (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Dark Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-xs transition-opacity animate-in fade-in"
+          onClick={() => setShowDiscardConfirm(false)}
+        />
+
+        {/* Dialog Box */}
+        <div
+          className="relative w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl text-slate-100 z-10 animate-in zoom-in-95 space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-white">Discard Changes?</h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Are you sure you want to discard the changes? Your unsaved changes will be lost.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDiscardConfirm(false)}
+            >
+              Keep Editing
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={handleConfirmDiscard}
+            >
+              Discard Changes
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }
