@@ -61,7 +61,6 @@ export async function middleware(request: NextRequest) {
     "/ecommerce",
     "/purchases",
     "/reports",
-    "/bills",
     "/settings",
     "/api",
   ];

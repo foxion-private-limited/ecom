@@ -127,9 +127,8 @@ graph TD
 - **Returns Management (`/ecommerce/returns`)**: Return handling with automated inventory restock and refund ledger debit entries.
 - **Platform Management (`/ecommerce/platforms`)**: Commission rates, platform codes, and performance metrics.
 
-### 5. Procurement & Vendor Bills (`/purchases` & `/bills`)
+### 5. Procurement (`/purchases`)
 - Inward purchase invoice tracking with supplier party linkages, payment modes, and GST input credit.
-- Document storage for scanned bills, invoices, and payment receipts (`/api/bills/upload`).
 
 ### 6. Reports & Financial Intelligence (`/reports`)
 - **Profit & Loss (`/reports/pnl`)**: Gross Sales Revenue minus COGS, Marketplace Fees, and Shipping $\rightarrow$ Gross Profit; minus Operating Overheads $\rightarrow$ Net Profit.
@@ -179,7 +178,6 @@ ecom/
 │   │   └── import/                      # Interactive Excel import & editor (Accounts & Pre-Company)
 │   ├── api/                             # Server API Route Handlers
 │   │   ├── auth/                        # Login, logout, session verification
-│   │   ├── bills/                       # Bill storage and upload
 │   │   ├── dashboard/                   # Aggregated KPI and chart data
 │   │   ├── excel/                       # Import, export, and spreadsheet validation
 │   │   ├── orders/                      # Orders and return processing
@@ -187,7 +185,6 @@ ecom/
 │   │   ├── purchases/                   # Purchase invoices
 │   │   ├── reports/                     # Report generation endpoints
 │   │   └── transactions/                # Main transaction CRUD
-│   ├── bills/                           # Document and receipt repository
 │   ├── dashboard/                       # Executive KPI dashboard and Recharts
 │   ├── ecommerce/                       # Orders, sales, returns, platforms
 │   ├── inventory/                       # Products, stock levels, movements

@@ -10,7 +10,6 @@ import {
   ShoppingCart,
   Receipt,
   BarChart3,
-  FileText,
   Settings,
   ChevronDown,
   ChevronRight,
@@ -83,11 +82,6 @@ const navItems: NavItem[] = [
       { title: "Cash Flow", href: "/reports/cashflow" },
       { title: "GST Report", href: "/reports/gst" },
     ],
-  },
-  {
-    title: "Bills / Documents",
-    href: "/bills",
-    icon: FileText,
   },
   {
     title: "Settings",
