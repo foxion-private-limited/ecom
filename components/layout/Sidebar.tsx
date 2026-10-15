@@ -20,6 +20,7 @@ import {
   Store,
   Layers,
   FileSpreadsheet,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,15 @@ const navItems: NavItem[] = [
     title: "Purchases",
     href: "/purchases",
     icon: Receipt,
+  },
+  {
+    title: "Tax Invoices",
+    icon: FileText,
+    children: [
+      { title: "All Invoices", href: "/invoices", icon: FileText },
+      { title: "Create Invoice", href: "/invoices/new" },
+      { title: "Invoice Settings", href: "/settings/invoices" },
+    ],
   },
   {
     title: "Reports",

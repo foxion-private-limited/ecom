@@ -9,3 +9,6 @@ export * from "./Party";
 export * from "./Bill";
 export * from "./Platform";
 export * from "./ImportBatch";
+export * from "./TaxInvoice";
+export * from "./InvoiceSettings";
+export * from "./InvoiceCounter";

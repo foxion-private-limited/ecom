@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Button, Input, Badge } from "@/lib/ui";
-import { Settings, Shield, Database, RefreshCw, Sparkles, Building, CheckCircle2 } from "lucide-react";
+import { Settings, Shield, Database, RefreshCw, Sparkles, Building, CheckCircle2, FileText, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 export default function SettingsPage() {
@@ -67,6 +68,29 @@ export default function SettingsPage() {
               <span className="text-slate-400 block mb-1">Costing Method</span>
               <span className="text-sm font-semibold text-white">Standard Purchase Cost (Extensible to FIFO / W.Avg)</span>
             </div>
+          </div>
+        </Card>
+
+        {/* Tax Invoices Configuration Card */}
+        <Card className="p-6 border-slate-800 bg-slate-900/80 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-3">
+              <FileText className="w-5 h-5 text-indigo-400" />
+              <div>
+                <h2 className="text-base font-bold text-white">Tax Invoices &amp; GST Configuration</h2>
+                <p className="text-xs text-slate-400">Seller details, GST registration status, and PDF archival settings</p>
+              </div>
+            </div>
+            <Link href="/settings/invoices">
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 text-xs font-medium">
+                Manage Invoices
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
+          </div>
+
+          <div className="text-xs text-slate-300">
+            Configure Foxion&apos;s registered business address, GSTIN, invoice series prefix, Test Mode toggle, and complete authoritative GST registration verification.
           </div>
         </Card>
 

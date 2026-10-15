@@ -333,3 +333,40 @@ npm run start
    - Use `formatIndianDate` / `IndianDateInput` for dates (`DD/MM/YYYY`).
 5. **No Blind State Overwrites**:
    - Never directly modify `Product.stock` without recording a corresponding `StockMovement`.
+
+---
+
+## 🧾 Tax Invoice Management System (Independent Module)
+
+A production-quality **Tax Invoice Management Module** designed for Indian business GST invoicing and ecommerce dispatch operations.
+
+### Key Architectural Characteristics
+- **Strict Independence**: Operates with its own dedicated Mongoose models (`TaxInvoice`, `InvoiceSettings`, `InvoiceCounter`), service layer, and file storage. Does **not** modify or create records in `Order`, `Product`, `StockMovement`, `Purchase`, or `Transaction` (accounting ledger).
+- **Test Mode vs Production Mode Separation**:
+  - **Test Mode**: Allows creating, editing, and issuing test documents before Foxion's GST registration is active. In Test Mode, all generated PDFs and PNGs carry an immutable diagonal watermark and exact notice:  
+    `TEST INVOICE — NOT VALID FOR GST CLAIM OR FILING`
+  - **Production Mode**: Strictly enforced on both client and server. Production issuance requires verified seller GSTIN, legal business name, registered address with 2-digit state code, GST registration effective date, and an explicit verification audit record. Invoices cannot be dated prior to the registration effective date.
+- **HTML/CSS Design Template**: Clean, A4 portrait Indian tax invoice layout with professional navy typography, seller & buyer snapshots, HSN/SAC codes, UOM, rate-wise GST breakdown tables, and totals in words (lakhs & crores).
+- **Programmatic Playwright Chromium Rendering**:
+  - Generates authentic print-media A4 PDFs via headless Chromium.
+  - Generates optional high-DPI (2x retina) PNG page images.
+- **Permanent MongoDB GridFS Storage**:
+  - Issued canonical PDFs are stored in GridFS bucket `taxinvoicepdfs` (`taxinvoicepdfs.files` & `taxinvoicepdfs.chunks`).
+  - SHA-256 checksums are stored on the invoice document for file integrity validation.
+  - Historical issued invoices cannot be altered when seller settings change.
+- **Concurrency-Safe Monotonic Numbering**:
+  - Uses atomic `$inc` on `InvoiceCounter` per (mode, financialYear, prefix) scope (e.g. `INV/26-27/001`).
+  - TEST and PRODUCTION sequences remain completely isolated.
+  - Cancelled invoice numbers are never reused or deleted.
+
+### Available Routes & Navigation
+- `/invoices` — Invoice dashboard, stats cards, filterable listing, download & cancel actions.
+- `/invoices/new` — Create invoice with real-time split-screen live HTML template preview.
+- `/invoices/[id]` — Invoice details, canonical PDF stream/download, PNG export, status management.
+- `/settings/invoices` — Seller business details, branding color/logo, and GST registration verification panel.
+
+### Running Invoice Tests
+```bash
+# Run the complete automated test suite (Calculations, Words, FY, Safeguards, Playwright, GridFS)
+pnpm test:invoices
+```

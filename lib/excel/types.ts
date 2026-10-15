@@ -18,19 +18,49 @@ export interface ExcelAccountingRow {
   balance?: number;
   remarks?: string;
   billAvailable: boolean;
+  // Metadata preserved during parsing
+  __excelRowNumber?: number;
+  __sheetName?: string;
+  __rawValues?: Record<string, unknown>;
+}
+
+export interface ParsedExcelRow {
+  excelRowNumber: number; // 1-based actual Excel row number (including header row)
+  sheetName: string;
+  data: Partial<ExcelAccountingRow>;
+  rawValues: Record<string, unknown>;
+}
+
+export interface ExcelValidationErrorItem {
+  sheetName: string;
+  rowNumber: number; // Actual 1-based Excel row number (including header)
+  field: string; // Field key, e.g. "date", "debit", "description"
+  columnHeader: string; // Excel column name, e.g. "Date", "Debit", "Description"
+  currentValue: string; // The exact value read from the Excel file
+  code: string; // Machine-readable error code
+  error: string; // Clear explanation of what is wrong
+  howToFix: string; // Specific guidance on expected value or format
+  // Aliases for compatibility
+  message?: string;
+  suggestion?: string;
 }
 
 export interface ExcelRowValidationResult {
-  rowNumber: number;
+  rowNumber: number; // Actual 1-based Excel row number
+  sheetName: string;
   isValid: boolean;
   data: ExcelAccountingRow;
-  errors: string[];
+  rawValues?: Record<string, unknown>;
+  errors: string[]; // List of error message strings
+  errorItems: ExcelValidationErrorItem[]; // Detailed structured error items
   warnings: string[];
 }
 
 export interface EditableImportRow {
   id: string;
   slNo: number;
+  excelRowNumber?: number; // Actual 1-based Excel row number
+  sheetName?: string;
   date: string; // strictly DD/MM/YYYY
   rawDate: Date;
   description: string;
@@ -54,17 +84,22 @@ export interface EditableImportRow {
   isNew?: boolean;
   isValid: boolean;
   fieldErrors: Record<string, string>;
+  errorItems?: ExcelValidationErrorItem[];
   warnings: string[];
 }
 
 export interface ExcelValidationSummary {
   filename: string;
+  sheetName?: string;
   origin?: "COMPANY" | "PRE_COMPANY";
-  totalRows: number;
-  validCount: number;
+  totalRows: number; // Total data rows examined
+  validCount: number; // Valid rows count
+  invalidRowCount: number; // Rows containing errors count
+  totalErrorsCount: number; // Total individual validation errors count across all rows
   warningCount: number;
-  errorCount: number;
+  errorCount: number; // Backward compatibility (same as invalidRowCount)
   rows: ExcelRowValidationResult[];
+  allErrors: ExcelValidationErrorItem[]; // All individual error items for reporting and export
 }
 
 export interface ExcelImportResult {

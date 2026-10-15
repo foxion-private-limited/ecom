@@ -32,11 +32,17 @@ import {
   Calendar,
   Layers,
   ArrowRight,
+  Download,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+  ExternalLink,
 } from "lucide-react";
 import { formatINR, formatIndianDate, parseIndianDate } from "@/lib/utils";
 import { IndianDateInput } from "@/components/ui/IndianDateInput";
-import { EditableImportRow } from "@/lib/excel/types";
+import { EditableImportRow, ExcelValidationErrorItem, ExcelRowValidationResult } from "@/lib/excel/types";
 import { validateSingleRow } from "@/lib/excel/excelValidator";
+import { getColumnHeaderForField, generateValidationErrorReportCsv } from "@/lib/excel/excelParser";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = [
@@ -104,6 +110,9 @@ function ExcelImportContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 50;
 
+  // Detailed Error Table Expansion State
+  const [isErrorTableExpanded, setIsErrorTableExpanded] = useState(true);
+
   // Confirmation Modal
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -156,7 +165,7 @@ function ExcelImportContent() {
 
         // Convert parsed rows into EditableImportRow array
         const initialRows: EditableImportRow[] = summary.rows.map(
-          (r: { rowNumber: number; isValid: boolean; data: Record<string, unknown>; errors: string[]; warnings: string[] }, idx: number) => {
+          (r: ExcelRowValidationResult, idx: number) => {
             const raw = r.data;
             const parsedDate = parseIndianDate(raw.date as string | Date) || new Date();
             const dateStr = formatIndianDate(parsedDate);
@@ -180,12 +189,19 @@ function ExcelImportContent() {
                 gstAmount: Number(raw.gstAmount) || 0,
                 tdsTcsAmount: Number(raw.tdsTcsAmount) || 0,
               },
-              { origin: importOrigin }
+              {
+                origin: importOrigin,
+                rowNumber: r.rowNumber,
+                sheetName: r.sheetName,
+                rawValues: (raw as any).__rawValues || r.rawValues,
+              }
             );
 
             return {
               id: `row-${idx + 1}-${Date.now()}`,
               slNo: idx + 1,
+              excelRowNumber: r.rowNumber,
+              sheetName: r.sheetName,
               date: dateStr,
               rawDate: parsedDate,
               description: String(raw.description || "").trim(),
@@ -209,7 +225,9 @@ function ExcelImportContent() {
               isNew: false,
               isValid: validation.isValid,
               fieldErrors: validation.fieldErrors,
+              errorItems: validation.errorItems,
               warnings: validation.warnings,
+              __rawValues: (raw as any).__rawValues || r.rawValues,
             };
           }
         );
@@ -219,9 +237,17 @@ function ExcelImportContent() {
         setCurrentStep("PREVIEW");
         setCurrentPage(1);
 
-        toast.success(`Parsed ${balancedRows.length} rows ready for review.`);
+        const invalidCount = balancedRows.filter((r) => !r.isValid).length;
+        if (invalidCount > 0) {
+          setIsErrorTableExpanded(true);
+          toast.error(`Validation found ${invalidCount} invalid row${invalidCount > 1 ? "s" : ""}. Review error log below.`);
+        } else {
+          setIsErrorTableExpanded(false);
+          toast.success(`Parsed ${balancedRows.length} rows ready for review.`);
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to parse file";
+        toast.error(message);
       } finally {
         setParsing(false);
       }
@@ -244,13 +270,19 @@ function ExcelImportContent() {
         gstAmount: row.gstAmount,
         tdsTcsAmount: row.tdsTcsAmount,
       },
-      { origin: importOrigin }
+      {
+        origin: importOrigin,
+        rowNumber: row.excelRowNumber || row.slNo,
+        sheetName: row.sheetName || "Sheet1",
+        rawValues: (row as any).__rawValues,
+      }
     );
 
     return {
       ...row,
       isValid: validation.isValid,
       fieldErrors: validation.fieldErrors,
+      errorItems: validation.errorItems,
       warnings: validation.warnings,
       rawDate: validation.parsedDate || row.rawDate,
     };
@@ -391,12 +423,81 @@ function ExcelImportContent() {
     return {
       totalRows: rows.length,
       validCount,
+      invalidRowCount: errorCount,
       errorCount,
       modifiedCount,
       totalDebit,
       totalCredit,
     };
   }, [rows]);
+
+  // All active validation error items across all rows
+  const allErrors = useMemo(() => {
+    const list: ExcelValidationErrorItem[] = [];
+    for (const r of rows) {
+      if (r.errorItems && r.errorItems.length > 0) {
+        list.push(...r.errorItems);
+      } else if (!r.isValid && r.fieldErrors && Object.keys(r.fieldErrors).length > 0) {
+        for (const [field, msg] of Object.entries(r.fieldErrors)) {
+          list.push({
+            sheetName: r.sheetName || "Sheet1",
+            rowNumber: r.excelRowNumber || r.slNo,
+            field,
+            columnHeader: getColumnHeaderForField(field),
+            currentValue: String((r as any)[field] ?? ""),
+            code: "INVALID_FIELD",
+            error: msg,
+            howToFix: `Please correct the value in ${getColumnHeaderForField(field)}`,
+          });
+        }
+      }
+    }
+    return list;
+  }, [rows]);
+
+  // Jump to specific Excel row in the table and highlight it
+  const handleJumpToRow = (rowNumber: number, fieldToEdit?: string) => {
+    const targetIdx = rows.findIndex((r) => (r.excelRowNumber || r.slNo) === rowNumber);
+    if (targetIdx === -1) return;
+
+    // Switch to page containing this row
+    const targetPage = Math.floor(targetIdx / pageSize) + 1;
+    setCurrentPage(targetPage);
+
+    const targetRow = rows[targetIdx];
+    if (fieldToEdit && fieldToEdit in targetRow) {
+      startEditing(targetRow.id, fieldToEdit as keyof EditableImportRow, (targetRow as any)[fieldToEdit]);
+    }
+
+    setTimeout(() => {
+      const elem = document.getElementById(`preview-row-${targetRow.id}`);
+      if (elem) {
+        elem.scrollIntoView({ behavior: "smooth", block: "center" });
+        elem.classList.add("ring-2", "ring-rose-500");
+        setTimeout(() => elem.classList.remove("ring-2", "ring-rose-500"), 2500);
+      }
+    }, 120);
+  };
+
+  // Export formula-safe CSV error report
+  const handleDownloadErrorReport = () => {
+    if (allErrors.length === 0) {
+      toast.info("No validation errors found in this spreadsheet.");
+      return;
+    }
+    const csvContent = generateValidationErrorReportCsv(allErrors);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const rawFileName = file?.name ? file.name.replace(/\.[^/.]+$/, "") : "accounts_import";
+    link.href = url;
+    link.setAttribute("download", `error_report_${rawFileName}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${allErrors.length} errors to CSV.`);
+  };
 
   // Filtered rows for search / error toggle
   const filteredRows = useMemo(() => {
@@ -636,16 +737,187 @@ function ExcelImportContent() {
                 Add Row
               </Button>
 
+              {allErrors.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-rose-700/60 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60 text-xs shadow-sm"
+                  onClick={handleDownloadErrorReport}
+                >
+                  <Download className="w-3.5 h-3.5 mr-1.5 text-rose-300" />
+                  Download Error Report
+                </Button>
+              )}
+
               <Button
-                variant={summaryMetrics.errorCount === 0 ? "success" : "outline"}
+                variant={summaryMetrics.invalidRowCount === 0 ? "success" : "outline"}
                 size="sm"
-                disabled={summaryMetrics.errorCount > 0 || summaryMetrics.totalRows === 0}
+                disabled={summaryMetrics.invalidRowCount > 0 || summaryMetrics.totalRows === 0}
                 onClick={() => setIsConfirmModalOpen(true)}
               >
                 Review & Import {summaryMetrics.totalRows} Rows
               </Button>
             </div>
           </div>
+
+          {/* Prominent Validation Summary Banner */}
+          {summaryMetrics.invalidRowCount > 0 ? (
+            <div className="rounded-xl border border-rose-500/50 bg-rose-950/40 p-4 shadow-lg backdrop-blur space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-rose-900/60 text-rose-400 mt-0.5">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-rose-200">
+                      Import validation failed: {summaryMetrics.invalidRowCount} row{summaryMetrics.invalidRowCount === 1 ? "" : "s"} contain errors.
+                    </h2>
+                    <p className="text-xs text-rose-300/80 mt-0.5">
+                      Please correct the invalid rows directly in the editable table below or download the error report to update your Excel spreadsheet.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-900/90 text-slate-300 border border-slate-700">
+                        Total rows: <strong className="text-white">{summaryMetrics.totalRows}</strong>
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800">
+                        Valid rows: <strong className="text-emerald-200">{summaryMetrics.validCount}</strong>
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-950/80 text-rose-300 border border-rose-700">
+                        Invalid rows: <strong className="text-rose-200">{summaryMetrics.invalidRowCount}</strong>
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950/80 text-amber-300 border border-amber-700">
+                        Errors: <strong className="text-amber-200">{allErrors.length}</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="bg-rose-900/40 hover:bg-rose-900/60 text-rose-200 border-rose-700/60 text-xs shadow-sm"
+                    onClick={handleDownloadErrorReport}
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1.5 text-rose-300" />
+                    Download Error Report
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-xs text-slate-300 hover:text-white"
+                    onClick={() => setIsErrorTableExpanded(!isErrorTableExpanded)}
+                  >
+                    {isErrorTableExpanded ? (
+                      <>
+                        Hide Error Table <ChevronUp className="w-3.5 h-3.5 ml-1" />
+                      </>
+                    ) : (
+                      <>
+                        View Error Table ({allErrors.length}) <ChevronDown className="w-3.5 h-3.5 ml-1" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Expandable Error Details Table */}
+              {isErrorTableExpanded && (
+                <div className="mt-3 pt-3 border-t border-rose-800/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-rose-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      Actionable Row-by-Row Error Details
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Click &ldquo;Jump to Row&rdquo; to quickly locate and edit
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto max-h-[360px] rounded-lg border border-slate-800 bg-slate-950/90 shadow-inner">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="sticky top-0 bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 z-10">
+                        <tr>
+                          <th className="py-2.5 px-3 w-28">Excel Row</th>
+                          <th className="py-2.5 px-3 w-36">Field / Column</th>
+                          <th className="py-2.5 px-3 w-40">Current Value</th>
+                          <th className="py-2.5 px-3">Error</th>
+                          <th className="py-2.5 px-3">How to Fix</th>
+                          <th className="py-2.5 px-3 text-center w-28">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {allErrors.map((err, errIdx) => (
+                          <tr
+                            key={`${err.sheetName}-${err.rowNumber}-${err.field}-${errIdx}`}
+                            className="hover:bg-slate-900/60 transition-colors"
+                          >
+                            <td className="py-2.5 px-3 font-mono text-slate-300 align-top">
+                              <span className="px-2 py-0.5 rounded bg-rose-950 border border-rose-800/80 text-rose-300 font-bold text-[11px]">
+                                Row {err.rowNumber}
+                              </span>
+                              {err.sheetName && err.sheetName !== "Sheet1" && (
+                                <span className="block text-[10px] text-slate-500 mt-0.5 truncate">
+                                  {err.sheetName}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-200 align-top">
+                              {err.columnHeader || err.field}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-400 align-top">
+                              {err.currentValue && err.currentValue !== "" ? (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 text-[11px] max-w-[150px] truncate block">
+                                  {err.currentValue}
+                                </span>
+                              ) : (
+                                <span className="italic text-slate-500 text-[11px]">[Empty]</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-rose-300 font-medium align-top">
+                              {err.error}
+                            </td>
+                            <td className="py-2.5 px-3 text-emerald-300/90 text-xs align-top">
+                              <div className="flex items-start gap-1">
+                                <span className="text-emerald-400 font-bold">Fix:</span>
+                                <span>{err.howToFix}</span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 text-center align-top">
+                              <button
+                                type="button"
+                                onClick={() => handleJumpToRow(err.rowNumber, err.field)}
+                                className="px-2.5 py-1 rounded text-[11px] font-medium bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 transition-colors"
+                              >
+                                Jump to Row
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-3.5 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-emerald-300 text-xs font-medium">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                <span>
+                  Validation successful: All <strong className="text-white">{summaryMetrics.totalRows}</strong> rows are valid and ready to import.
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded bg-emerald-900/60 text-emerald-200 text-xs font-semibold border border-emerald-700/50">
+                  Total: {summaryMetrics.totalRows} | Valid: {summaryMetrics.validCount} | Errors: 0
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* KPI Summary Strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -669,17 +941,22 @@ function ExcelImportContent() {
 
             <Card
               className={`p-3 border transition-colors ${
-                summaryMetrics.errorCount > 0
+                summaryMetrics.invalidRowCount > 0
                   ? "bg-rose-950/40 border-rose-800"
                   : "bg-slate-900/60 border-slate-800"
               }`}
             >
               <span className="text-[11px] text-rose-400 uppercase tracking-wider block">
-                Rows With Errors
+                Invalid Rows
               </span>
               <p className="text-xl font-bold text-rose-400 mt-0.5">
-                {summaryMetrics.errorCount}
+                {summaryMetrics.invalidRowCount}
               </p>
+              {allErrors.length > 0 && (
+                <span className="text-[10px] text-amber-400 block mt-0.5">
+                  ({allErrors.length} total errors)
+                </span>
+              )}
             </Card>
 
             <Card className="p-3 bg-blue-950/30 border-blue-800/50">
@@ -738,7 +1015,7 @@ function ExcelImportContent() {
                   className="rounded border-slate-700 bg-slate-800 text-rose-500 focus:ring-rose-500 h-4 w-4"
                 />
                 <span className={showErrorsOnly ? "text-rose-400 font-medium" : ""}>
-                  Show Errors Only ({summaryMetrics.errorCount})
+                  Show Errors Only ({summaryMetrics.invalidRowCount})
                 </span>
               </label>
 
@@ -754,7 +1031,7 @@ function ExcelImportContent() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="sticky top-0 bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider z-20 border-b border-slate-800">
                   <tr>
-                    <th className="py-2.5 px-2 text-center w-12">Sl No</th>
+                    <th className="py-2.5 px-2 text-center w-14">Sl No</th>
                     <th className="py-2.5 px-3 min-w-[110px]">Date</th>
                     <th className="py-2.5 px-3 min-w-[180px]">Description</th>
                     <th className="py-2.5 px-3 min-w-[140px]">Category</th>
@@ -796,23 +1073,38 @@ function ExcelImportContent() {
                       return (
                         <tr
                           key={row.id}
+                          id={`preview-row-${row.id}`}
                           className={`transition-colors group ${
                             hasRowError
-                              ? "bg-rose-950/25 hover:bg-rose-950/35"
+                              ? "bg-rose-950/25 hover:bg-rose-950/35 border-l-4 border-l-rose-500"
                               : row.isModified
                               ? "bg-blue-950/20 hover:bg-blue-950/30"
                               : "hover:bg-slate-800/40"
                           }`}
                         >
-                          {/* 1. Sl No (Read Only) */}
+                          {/* 1. Sl No & Excel Row (Read Only) */}
                           <td className="py-2 px-2 text-center font-mono text-[11px] text-slate-400 select-none">
-                            <div className="flex items-center justify-center gap-1">
-                              <span>{row.slNo}</span>
-                              {row.isModified && (
+                            <div className="flex flex-col items-center justify-center">
+                              <div className="flex items-center gap-1">
+                                <span>{row.slNo}</span>
+                                {row.isModified && (
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full bg-blue-400"
+                                    title="Row modified"
+                                  />
+                                )}
+                              </div>
+                              {row.excelRowNumber && (
                                 <span
-                                  className="w-1.5 h-1.5 rounded-full bg-blue-400"
-                                  title="Row modified"
-                                />
+                                  className={`text-[9px] font-mono px-1 rounded mt-0.5 ${
+                                    hasRowError
+                                      ? "text-rose-300 bg-rose-950/90 border border-rose-800/70 font-semibold"
+                                      : "text-slate-500"
+                                  }`}
+                                  title={`Physical Excel Worksheet Row #${row.excelRowNumber}`}
+                                >
+                                  Row {row.excelRowNumber}
+                                </span>
                               )}
                             </div>
                           </td>
