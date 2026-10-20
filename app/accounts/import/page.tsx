@@ -63,9 +63,22 @@ const BANK_CASH_OPTIONS: Array<"Bank" | "Cash" | "Personal Bank" | "Personal Cas
   "N/A",
 ];
 
-function calculateRunningBalances(rows: EditableImportRow[]): EditableImportRow[] {
-  let running = 0;
-  return rows.map((r, idx) => {
+function calculateRunningBalances(
+  rows: EditableImportRow[],
+  startingBalance: number = 0
+): EditableImportRow[] {
+  // Sort chronologically ascending, preserving stable deterministic Excel row ordering for same-date rows
+  const sorted = [...rows].sort((a, b) => {
+    const da = a.rawDate ? a.rawDate.getTime() : (parseIndianDate(a.date)?.getTime() || 0);
+    const db = b.rawDate ? b.rawDate.getTime() : (parseIndianDate(b.date)?.getTime() || 0);
+    if (da !== db) return da - db;
+    const rowA = Number(a.excelRowNumber ?? a.slNo ?? 0);
+    const rowB = Number(b.excelRowNumber ?? b.slNo ?? 0);
+    return rowA - rowB;
+  });
+
+  let running = startingBalance;
+  return sorted.map((r, idx) => {
     const debit = Number(r.debit) || 0;
     const credit = Number(r.credit) || 0;
     running += credit - debit;
@@ -94,6 +107,7 @@ function ExcelImportContent() {
   const [parsing, setParsing] = useState(false);
   const [rows, setRows] = useState<EditableImportRow[]>([]);
   const [originalRowCount, setOriginalRowCount] = useState(0);
+  const [openingBalance, setOpeningBalance] = useState<number>(0);
 
   // In-table Editing State
   const [editingCell, setEditingCell] = useState<{ rowId: string; field: keyof EditableImportRow } | null>(null);
@@ -232,7 +246,10 @@ function ExcelImportContent() {
           }
         );
 
-        const balancedRows = calculateRunningBalances(initialRows);
+        const serverOpeningBal = typeof data.openingBalance === "number" ? data.openingBalance : 0;
+        setOpeningBalance(serverOpeningBal);
+
+        const balancedRows = calculateRunningBalances(initialRows, serverOpeningBal);
         setRows(balancedRows);
         setCurrentStep("PREVIEW");
         setCurrentPage(1);
@@ -318,7 +335,7 @@ function ExcelImportContent() {
         return revalidateRow(modifiedRow);
       });
 
-      return calculateRunningBalances(updated);
+      return calculateRunningBalances(updated, openingBalance);
     });
 
     setEditingCell(null);
@@ -362,7 +379,7 @@ function ExcelImportContent() {
     };
 
     const revalidated = revalidateRow(newRow);
-    const updated = calculateRunningBalances([revalidated, ...rows]);
+    const updated = calculateRunningBalances([revalidated, ...rows], openingBalance);
     setRows(updated);
     setCurrentPage(1);
     toast.success("New transaction row added at the top.");
@@ -383,7 +400,7 @@ function ExcelImportContent() {
 
     const newRows = [...rows];
     newRows.splice(targetIdx + 1, 0, revalidateRow(duplicated));
-    const balanced = calculateRunningBalances(newRows);
+    const balanced = calculateRunningBalances(newRows, openingBalance);
     setRows(balanced);
     toast.success(`Duplicated row #${target.slNo}.`);
   };
@@ -398,7 +415,7 @@ function ExcelImportContent() {
     }
 
     const remaining = rows.filter((r) => r.id !== rowId);
-    const balanced = calculateRunningBalances(remaining);
+    const balanced = calculateRunningBalances(remaining, openingBalance);
     setRows(balanced);
     toast.success(`Removed row #${target.slNo}. Balances recalculated.`);
   };
@@ -550,6 +567,7 @@ function ExcelImportContent() {
         gstApplicable: r.gstApplicable,
         gstAmount: r.gstAmount,
         tdsTcsAmount: r.tdsTcsAmount,
+        balance: r.balance,
         remarks: r.remarks,
         billAvailable: r.billAvailable,
       }));
@@ -562,6 +580,7 @@ function ExcelImportContent() {
           accountType,
           origin: importOrigin,
           filename: file?.name || (importOrigin === "PRE_COMPANY" ? "pre_company_transactions.xlsx" : "foxion_accounting.xlsx"),
+          openingBalance,
         }),
       });
 
@@ -1024,6 +1043,21 @@ function ExcelImportContent() {
               </span>
             </div>
           </div>
+
+          {/* Opening Balance info strip */}
+          {openingBalance !== 0 && (
+            <div className="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-blue-950/40 border border-blue-800/60 text-xs shadow-sm">
+              <div className="flex items-center gap-2 text-blue-300">
+                <CheckCircle2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                <span>
+                  Opening balance of <strong className="text-white font-mono">{formatINR(openingBalance)}</strong> loaded from previous account records.
+                </span>
+              </div>
+              <span className="text-[11px] text-blue-400/80 hidden sm:inline">
+                Balances calculated chronologically from previous closing balance
+              </span>
+            </div>
+          )}
 
           {/* Editable Grid */}
           <Card className="overflow-hidden border-slate-800 bg-slate-900/90">

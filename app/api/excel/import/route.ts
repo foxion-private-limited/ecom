@@ -1,11 +1,19 @@
 import { NextResponse } from "next/server";
 import { importAccountingBatch } from "@/lib/excel/excelImporter";
 import { getCurrentUser } from "@/lib/auth/session";
+import { ExcelAccountingRow } from "@/lib/excel/types";
 
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
-    const { rows, accountType, filename, origin } = await req.json();
+    const body = await req.json();
+    const { rows, filename, origin, openingBalance } = body as {
+      rows?: ExcelAccountingRow[];
+      accountType?: string;
+      filename?: string;
+      origin?: string;
+      openingBalance?: number;
+    };
 
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json(
@@ -22,14 +30,16 @@ export async function POST(req: Request) {
       targetAccountType,
       filename || "import.xlsx",
       user?.email || "System",
-      targetOrigin
+      targetOrigin,
+      typeof openingBalance === "number" ? { initialBalance: openingBalance } : undefined
     );
 
     return NextResponse.json(result);
-  } catch (error: any) {
-    console.error("Excel import error:", error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to import rows";
+    console.error("Excel import error:", message);
     return NextResponse.json(
-      { error: error.message || "Failed to import rows" },
+      { error: message },
       { status: 500 }
     );
   }

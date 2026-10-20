@@ -13,6 +13,9 @@ interface ExportScopeModalProps {
   accountType?: string;
   origin?: "COMPANY" | "PRE_COMPANY" | "ALL";
   activeCategory?: string;
+  paymentMode?: string;
+  bankOrCash?: string;
+  search?: string;
 }
 
 const MONTH_NAMES = [
@@ -36,6 +39,9 @@ export function ExportScopeModal({
   accountType = "MAIN",
   origin = "COMPANY",
   activeCategory,
+  paymentMode,
+  bankOrCash,
+  search,
 }: ExportScopeModalProps) {
   const isPreCompany = origin === "PRE_COMPANY";
   const currentDate = new Date();
@@ -135,6 +141,15 @@ export function ExportScopeModal({
       if (finalEnd) params.set("endDate", finalEnd);
       if (activeCategory && activeCategory !== "ALL") {
         params.set("category", activeCategory);
+      }
+      if (paymentMode && paymentMode !== "ALL") {
+        params.set("paymentMode", paymentMode);
+      }
+      if (bankOrCash && bankOrCash !== "ALL") {
+        params.set("bankOrCash", bankOrCash);
+      }
+      if (search && search.trim()) {
+        params.set("search", search.trim());
       }
 
       const res = await fetch(`/api/excel/export?${params.toString()}`);

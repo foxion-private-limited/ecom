@@ -1,16 +1,21 @@
 import { connectDB } from "@/lib/db/connection";
-import { Transaction, AccountType } from "@/lib/models/Transaction";
+import { Transaction, AccountType, TransactionOrigin } from "@/lib/models/Transaction";
 import { ImportBatch } from "@/lib/models/ImportBatch";
 import { Category } from "@/lib/models/Category";
 import { ExcelAccountingRow, ExcelImportResult } from "./types";
 import { parseIndianDate } from "@/lib/utils";
+import {
+  getPreviousTransactionBalance,
+  calculateImportBalances,
+} from "@/lib/services/transactionService";
 
 export async function importAccountingBatch(
   validRows: ExcelAccountingRow[],
   accountType: AccountType = "MAIN",
   filename: string,
   userEmail: string = "System",
-  origin: "COMPANY" | "PRE_COMPANY" = "COMPANY"
+  origin: TransactionOrigin = "COMPANY",
+  options?: { initialBalance?: number }
 ): Promise<ExcelImportResult> {
   await connectDB();
 
@@ -38,9 +43,27 @@ export async function importAccountingBatch(
       }
     }
 
-    // 2. Prepare transaction documents
+    // 2. Identify earliest transaction date and resolve legitimate opening balance
+    let earliestDate: Date | null = null;
+    for (const r of validRows) {
+      const parsed = parseIndianDate(r.date);
+      if (parsed && !isNaN(parsed.getTime())) {
+        if (!earliestDate || parsed.getTime() < earliestDate.getTime()) {
+          earliestDate = parsed;
+        }
+      }
+    }
+
+    const openingBalance = earliestDate
+      ? await getPreviousTransactionBalance(earliestDate, accountType, origin, options)
+      : (options?.initialBalance ?? 0);
+
+    // Calculate sequential balances chronologically from opening balance
+    const balancedRows = calculateImportBalances(validRows, openingBalance);
+
+    // 3. Prepare transaction documents with sequential balances
     const txDocs = [];
-    for (const row of validRows) {
+    for (const row of balancedRows) {
       const parsedDate = parseIndianDate(row.date) || new Date();
       const rowOrigin = row.transactionOrigin || origin;
       const bankOrCash = row.bankOrCash || (rowOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank");
@@ -62,6 +85,7 @@ export async function importAccountingBatch(
         category: row.category,
         debit: Number(row.debit) || 0,
         credit: Number(row.credit) || 0,
+        balance: row.balance,
         paymentMode: row.paymentMode || (bankOrCash.includes("Cash") ? "Cash" : "UPI"),
         bankOrCash,
         partyName: row.partyName?.trim() || undefined,

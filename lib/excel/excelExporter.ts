@@ -5,10 +5,13 @@ import { EXCEL_COLUMNS } from "./types";
 export interface TransactionExportItem {
   _id?: string | unknown;
   date: Date | string;
+  createdAt?: Date | string;
   description: string;
   category: string;
   debit: number;
   credit: number;
+  balance?: number;
+  calculatedBalance?: number;
   paymentMode: string;
   bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
   paymentSource?: string;
@@ -24,24 +27,43 @@ export interface TransactionExportItem {
 }
 
 /**
- * Generate Excel workbook buffer with exact 16/17-column template and calculated balances
+ * Generate Excel workbook buffer with exact 16/17-column template and preserved frontend balances
  */
 export function generateAccountingExcel(
   transactions: TransactionExportItem[],
   sheetTitle: string = "Foxion Accounts"
 ): Buffer {
-  // Sort chronologically ascending to calculate running balance correctly
+  // Sort chronologically ascending, matching ledger order: date, then createdAt, then _id
   const sorted = [...transactions].sort((a, b) => {
     const da = new Date(a.date).getTime();
     const db = new Date(b.date).getTime();
-    return da - db;
+    if (da !== db) return da - db;
+    if (a.createdAt && b.createdAt) {
+      const ca = new Date(a.createdAt).getTime();
+      const cb = new Date(b.createdAt).getTime();
+      if (ca !== cb) return ca - cb;
+    }
+    const idA = String(a._id || "");
+    const idB = String(b._id || "");
+    return idA.localeCompare(idB);
   });
 
-  let runningBalance = 0;
+  let fallbackRunningBalance = 0;
   const rows = sorted.map((tx, idx) => {
     const debit = Number(tx.debit) || 0;
     const credit = Number(tx.credit) || 0;
-    runningBalance += credit - debit;
+
+    // The frontend's displayed balance (calculatedBalance) is authoritative.
+    // Excel export must contain exactly the same balance for each corresponding transaction.
+    let balanceVal: number;
+    if (typeof tx.calculatedBalance === "number" && !isNaN(tx.calculatedBalance)) {
+      balanceVal = tx.calculatedBalance;
+    } else if (typeof tx.balance === "number" && !isNaN(tx.balance)) {
+      balanceVal = tx.balance;
+    } else {
+      fallbackRunningBalance += credit - debit;
+      balanceVal = fallbackRunningBalance;
+    }
 
     return {
       "Sl No": idx + 1,
@@ -58,7 +80,7 @@ export function generateAccountingExcel(
       "GST Applicable": tx.gstApplicable ? "Yes" : "No",
       "GST Amount": Number(tx.gstAmount) || 0,
       "TDS/TCS": Number(tx.tdsTcsAmount) || 0,
-      Balance: runningBalance,
+      Balance: balanceVal,
       Remarks: tx.remarks || "",
       "Bill Available": tx.billAvailable ? "Yes" : "No",
     };

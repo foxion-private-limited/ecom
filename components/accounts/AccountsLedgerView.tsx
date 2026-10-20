@@ -604,6 +604,9 @@ export function AccountsLedgerView({
         accountType={accountType}
         origin={origin}
         activeCategory={category !== "ALL" ? category : undefined}
+        paymentMode={paymentMode !== "ALL" ? paymentMode : undefined}
+        bankOrCash={bankOrCash !== "ALL" ? bankOrCash : undefined}
+        search={search || undefined}
       />
     </div>
   );

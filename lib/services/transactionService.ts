@@ -1,6 +1,7 @@
 import { connectDB } from "@/lib/db/connection";
-import { Transaction, ITransaction, AccountType } from "@/lib/models/Transaction";
+import { Transaction, ITransaction, AccountType, TransactionOrigin } from "@/lib/models/Transaction";
 import { Category } from "@/lib/models/Category";
+import { parseIndianDate, toInputDateString } from "@/lib/utils";
 
 export interface TransactionFilterOptions {
   accountType?: AccountType | string;
@@ -16,6 +17,7 @@ export interface TransactionFilterOptions {
   search?: string;
   page?: number;
   limit?: number;
+  unpaginated?: boolean;
 }
 
 export interface LiquidBalances {
@@ -105,6 +107,7 @@ export async function getTransactions(
   await connectDB();
 
   const {
+    accountType = "MAIN",
     transactionOrigin = "COMPANY",
     startDate,
     endDate,
@@ -119,28 +122,43 @@ export async function getTransactions(
     limit = 50,
   } = options;
 
-  const query: any = { isArchived: { $ne: true }, accountType: "MAIN" };
+  const resolvedAccountType = accountType && accountType !== "ALL" ? accountType : "MAIN";
+  const baseAccountQuery: any = { isArchived: { $ne: true }, accountType: resolvedAccountType };
 
   if (transactionOrigin && transactionOrigin !== "ALL") {
     if (transactionOrigin === "PRE_COMPANY") {
-      query.transactionOrigin = "PRE_COMPANY";
+      baseAccountQuery.transactionOrigin = "PRE_COMPANY";
     } else {
-      query.$or = [
+      baseAccountQuery.$or = [
         { transactionOrigin: "COMPANY" },
         { transactionOrigin: { $exists: false } },
       ];
     }
   }
 
+  const query: any = { ...baseAccountQuery };
+
   if (startDate || endDate) {
     query.date = {};
     if (startDate) {
-      query.date.$gte = new Date(startDate);
+      if (typeof startDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+        const [sYear, sMonth, sDay] = startDate.split("-").map(Number);
+        query.date.$gte = new Date(Date.UTC(sYear, sMonth - 1, sDay, 0, 0, 0, 0));
+      } else {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.date.$gte = start;
+      }
     }
     if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      query.date.$lte = end;
+      if (typeof endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        const [eYear, eMonth, eDay] = endDate.split("-").map(Number);
+        query.date.$lte = new Date(Date.UTC(eYear, eMonth - 1, eDay, 23, 59, 59, 999));
+      } else {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.date.$lte = end;
+      }
     }
   }
 
@@ -303,21 +321,82 @@ export async function getTransactions(
   const total = rawSummary.count;
   const skip = (page - 1) * limit;
 
-  // Retrieve transactions sorted chronologically
-  const allFilteredTransactions = await Transaction.find(query)
-    .sort({ date: 1, createdAt: 1, _id: 1 })
-    .lean();
+  const hasFilters = Boolean(
+    startDate ||
+    endDate ||
+    (category && category !== "ALL") ||
+    (paymentMode && paymentMode !== "ALL") ||
+    (bankOrCash && bankOrCash !== "ALL") ||
+    (paymentSource && paymentSource !== "ALL") ||
+    paidBy ||
+    partyName ||
+    search
+  );
 
-  let runningBalance = 0;
-  const transactionsWithBalance = allFilteredTransactions.map((tx) => {
-    const debit = tx.debit || 0;
-    const credit = tx.credit || 0;
-    runningBalance += credit - debit;
+  let transactionsWithBalance: TransactionWithBalance[];
+
+  if (hasFilters) {
+    // 1. Establish authoritative running balance for each transaction from the complete account ledger.
+    // The frontend's displayed balance is authoritative; transactions preserve their true ledger balance.
+    const ledgerTransactions = await Transaction.find(baseAccountQuery)
+      .select("_id debit credit date createdAt")
+      .sort({ date: 1, createdAt: 1, _id: 1 })
+      .lean();
+
+    const balanceMap = new Map<string, number>();
+    let ledgerRunningBalance = 0;
+    for (const ltx of ledgerTransactions) {
+      const debit = ltx.debit || 0;
+      const credit = ltx.credit || 0;
+      ledgerRunningBalance += credit - debit;
+      balanceMap.set(String(ltx._id), ledgerRunningBalance);
+    }
+
+    // 2. Retrieve filtered transactions in chronological order
+    const filteredTransactions = await Transaction.find(query)
+      .sort({ date: 1, createdAt: 1, _id: 1 })
+      .lean();
+
+    // 3. Map each filtered transaction to its exact ledger balance using its stable transaction ID
+    transactionsWithBalance = filteredTransactions.map((tx) => {
+      const calculatedBalance = balanceMap.has(String(tx._id))
+        ? (balanceMap.get(String(tx._id)) as number)
+        : 0;
+      return {
+        ...tx,
+        calculatedBalance,
+      } as unknown as TransactionWithBalance;
+    });
+  } else {
+    // No filters applied: calculate running balance across the full ledger directly
+    const allFilteredTransactions = await Transaction.find(query)
+      .sort({ date: 1, createdAt: 1, _id: 1 })
+      .lean();
+
+    let runningBalance = 0;
+    transactionsWithBalance = allFilteredTransactions.map((tx) => {
+      const debit = tx.debit || 0;
+      const credit = tx.credit || 0;
+      runningBalance += credit - debit;
+      return {
+        ...tx,
+        calculatedBalance: runningBalance,
+      } as unknown as TransactionWithBalance;
+    });
+  }
+
+  if (options.unpaginated) {
     return {
-      ...tx,
-      calculatedBalance: runningBalance,
-    } as unknown as TransactionWithBalance;
-  });
+      transactions: transactionsWithBalance,
+      summary,
+      pagination: {
+        page: 1,
+        limit: transactionsWithBalance.length,
+        total,
+        pages: 1,
+      },
+    };
+  }
 
   // For display, most recent first (descending), sliced by page
   const reversed = [...transactionsWithBalance].reverse();
@@ -391,4 +470,112 @@ export async function archiveTransaction(id: string): Promise<boolean> {
   await connectDB();
   const res = await Transaction.findByIdAndUpdate(id, { isArchived: true });
   return !!res;
+}
+
+/**
+ * Query existing account records to find the latest transaction that occurred
+ * strictly before the earliest imported transaction's date and return its closing balance.
+ * Strictly guarantees no future transactions or same-date transactions influence the starting balance.
+ */
+export async function getPreviousTransactionBalance(
+  earliestDateInput: Date | string,
+  accountType: AccountType | string = "MAIN",
+  origin: TransactionOrigin | string = "COMPANY",
+  options?: { initialBalance?: number }
+): Promise<number> {
+  await connectDB();
+
+  const earliestDate = parseIndianDate(earliestDateInput) || new Date(earliestDateInput);
+  if (isNaN(earliestDate.getTime())) {
+    return options?.initialBalance ?? 0;
+  }
+
+  // Derive the exact start of earliestDate's calendar day in Asia/Kolkata (UTC+5:30)
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(earliestDate);
+  const day = parseInt(parts.find((p) => p.type === "day")?.value || "1", 10);
+  const month = parseInt(parts.find((p) => p.type === "month")?.value || "1", 10) - 1;
+  const year = parseInt(parts.find((p) => p.type === "year")?.value || "2026", 10);
+
+  // 00:00:00 IST is 18:30:00 UTC of previous day
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const startOfDayIST = new Date(Date.UTC(year, month, day, 0, 0, 0) - istOffsetMs);
+  const earliestDateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  const query: Record<string, unknown> = {
+    accountType,
+    isArchived: { $ne: true },
+    date: { $lt: startOfDayIST },
+  };
+
+  if (origin === "PRE_COMPANY") {
+    query.transactionOrigin = "PRE_COMPANY";
+  } else {
+    query.$or = [
+      { transactionOrigin: "COMPANY" },
+      { transactionOrigin: { $exists: false } },
+    ];
+  }
+
+  const previousTransactions = await Transaction.find(query)
+    .sort({ date: 1, createdAt: 1, _id: 1 })
+    .lean();
+
+  if (previousTransactions.length === 0) {
+    return options?.initialBalance ?? 0;
+  }
+
+  let runningBalance = options?.initialBalance ?? 0;
+  for (const tx of previousTransactions) {
+    const txDateStr = toInputDateString(tx.date);
+    if (txDateStr && txDateStr >= earliestDateStr) {
+      continue; // Strictly guarantee no transactions on or after earliestDate are included
+    }
+    const credit = Number(tx.credit) || 0;
+    const debit = Number(tx.debit) || 0;
+    runningBalance += credit - debit;
+  }
+
+  return runningBalance;
+}
+
+/**
+ * Sequentially calculate running balances for imported transactions from openingBalance.
+ * Preserves deterministic ordering: primary sort by date ascending, secondary tiebreaker
+ * using excelRowNumber or slNo or original array index.
+ */
+export function calculateImportBalances<
+  T extends {
+    date: string | Date;
+    debit?: number;
+    credit?: number;
+    balance?: number;
+    slNo?: number | string;
+    excelRowNumber?: number;
+  }
+>(rows: T[], openingBalance: number = 0): T[] {
+  const sorted = [...rows].sort((a, b) => {
+    const da = a.date instanceof Date ? a.date.getTime() : (parseIndianDate(a.date)?.getTime() || 0);
+    const db = b.date instanceof Date ? b.date.getTime() : (parseIndianDate(b.date)?.getTime() || 0);
+    if (da !== db) return da - db;
+    const rowA = Number(a.excelRowNumber ?? a.slNo ?? 0);
+    const rowB = Number(b.excelRowNumber ?? b.slNo ?? 0);
+    return rowA - rowB;
+  });
+
+  let running = openingBalance;
+  return sorted.map((row, idx) => {
+    const debit = Number(row.debit) || 0;
+    const credit = Number(row.credit) || 0;
+    running += credit - debit;
+    return {
+      ...row,
+      slNo: idx + 1,
+      balance: running,
+    };
+  });
 }

@@ -20,7 +20,9 @@ export interface ExcelAccountingRow {
   billAvailable: boolean;
   // Metadata preserved during parsing
   __excelRowNumber?: number;
+  excelRowNumber?: number;
   __sheetName?: string;
+  sheetName?: string;
   __rawValues?: Record<string, unknown>;
 }
 

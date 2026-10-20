@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { parseExcelBuffer } from "@/lib/excel/excelParser";
 import { validateExcelRows } from "@/lib/excel/excelValidator";
+import { parseIndianDate } from "@/lib/utils";
+import { getPreviousTransactionBalance } from "@/lib/services/transactionService";
 
 export async function POST(req: Request) {
   try {
@@ -28,20 +30,43 @@ export async function POST(req: Request) {
     }
 
     // Extract origin if provided (default COMPANY)
-    const origin = (formData.get("origin") as any) === "PRE_COMPANY" ? "PRE_COMPANY" : "COMPANY";
+    const originParam = formData.get("origin");
+    const origin: "COMPANY" | "PRE_COMPANY" = originParam === "PRE_COMPANY" ? "PRE_COMPANY" : "COMPANY";
+    const accountType = (formData.get("accountType") as string) || "MAIN";
 
     // Validate rows
     const validationSummary = validateExcelRows(rows, file.name, { origin });
+
+    // Determine earliest transaction date across all rows
+    let earliestDate: Date | null = null;
+    for (const r of validationSummary.rows) {
+      if (r.data.date) {
+        const d = parseIndianDate(r.data.date as string | Date);
+        if (d && !isNaN(d.getTime())) {
+          if (!earliestDate || d.getTime() < earliestDate.getTime()) {
+            earliestDate = d;
+          }
+        }
+      }
+    }
+
+    let openingBalance = 0;
+    if (earliestDate) {
+      openingBalance = await getPreviousTransactionBalance(earliestDate, accountType, origin);
+    }
 
     return NextResponse.json({
       success: true,
       headers,
       summary: validationSummary,
+      openingBalance,
+      earliestDate: earliestDate ? earliestDate.toISOString() : null,
     });
-  } catch (error: any) {
-    console.error("Excel validation error:", error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to parse and validate Excel file";
+    console.error("Excel validation error:", message);
     return NextResponse.json(
-      { error: error.message || "Failed to parse and validate Excel file" },
+      { error: message },
       { status: 500 }
     );
   }

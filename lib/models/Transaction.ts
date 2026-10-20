@@ -19,6 +19,7 @@ export interface ITransaction extends Document {
   category: string;
   debit: number;
   credit: number;
+  balance?: number;
   paymentMode: string;
   bankOrCash: "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A";
   partyName?: string;
@@ -66,6 +67,7 @@ const TransactionSchema = new Schema<ITransaction>(
     category: { type: String, required: true, trim: true, index: true },
     debit: { type: Number, required: true, default: 0, min: 0 },
     credit: { type: Number, required: true, default: 0, min: 0 },
+    balance: { type: Number },
     paymentMode: {
       type: String,
       required: true,
