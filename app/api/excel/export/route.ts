@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/db/connection";
 import { getTransactions } from "@/lib/services/transactionService";
-import { generateAccountingExcel, TransactionExportItem } from "@/lib/excel/excelExporter";
+import {
+  generateAccountingExcel,
+  TransactionExportItem,
+  getAccountingExportFilename,
+} from "@/lib/excel/excelExporter";
 
 export async function GET(req: Request) {
   try {
@@ -9,6 +13,9 @@ export async function GET(req: Request) {
 
     const accountType = searchParams.get("accountType") || "MAIN";
     const origin = searchParams.get("origin") || searchParams.get("transactionOrigin") || undefined;
+    const scope = (searchParams.get("scope") as "ALL" | "MONTH" | "RANGE" | null) || undefined;
+    const month = searchParams.get("month") || undefined;
+    const year = searchParams.get("year") || undefined;
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
     const category = searchParams.get("category") || undefined;
@@ -47,10 +54,14 @@ export async function GET(req: Request) {
     const title = isPreCompany ? "Foxion Pre-Company Transactions" : "Foxion Accounts";
     const buffer = generateAccountingExcel(result.transactions as unknown as TransactionExportItem[], title);
 
-    const nowStr = new Date().toISOString().slice(0, 10);
-    const filename = isPreCompany
-      ? `Foxion_Pre_Company_Transactions_${nowStr}.xlsx`
-      : `Foxion_Accounts_${nowStr}.xlsx`;
+    const filename = getAccountingExportFilename({
+      scope,
+      month,
+      year,
+      startDate,
+      endDate,
+      origin,
+    });
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
@@ -75,10 +86,26 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { transactions, origin, title: customTitle } = body as {
+    const {
+      transactions,
+      origin,
+      title: customTitle,
+      scope,
+      month,
+      year,
+      startDate,
+      endDate,
+      filename: customFilename,
+    } = body as {
       transactions?: TransactionExportItem[];
       origin?: "COMPANY" | "PRE_COMPANY";
       title?: string;
+      scope?: "ALL" | "MONTH" | "RANGE";
+      month?: number | string;
+      year?: number | string;
+      startDate?: string;
+      endDate?: string;
+      filename?: string;
     };
 
     if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
@@ -92,10 +119,16 @@ export async function POST(req: Request) {
     const title = customTitle || (isPreCompany ? "Foxion Pre-Company Transactions" : "Foxion Accounts");
     const buffer = generateAccountingExcel(transactions, title);
 
-    const nowStr = new Date().toISOString().slice(0, 10);
-    const filename = isPreCompany
-      ? `Foxion_Pre_Company_Transactions_${nowStr}.xlsx`
-      : `Foxion_Accounts_${nowStr}.xlsx`;
+    const filename =
+      customFilename ||
+      getAccountingExportFilename({
+        scope,
+        month,
+        year,
+        startDate,
+        endDate,
+        origin,
+      });
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

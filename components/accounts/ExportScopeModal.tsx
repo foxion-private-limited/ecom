@@ -2,10 +2,13 @@
 
 import React, { useState, useMemo } from "react";
 import { Modal, Button, Badge } from "@/lib/ui";
-import { Download, Calendar, Layers, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Download, Calendar, Layers, AlertCircle, CheckCircle2, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
-
-export type ExportScopeType = "ALL" | "MONTH" | "RANGE";
+import {
+  getAccountingExportFilename,
+  MONTH_NAMES,
+  ExportScopeType,
+} from "@/lib/excel/excelExporter";
 
 interface ExportScopeModalProps {
   isOpen: boolean;
@@ -17,21 +20,6 @@ interface ExportScopeModalProps {
   bankOrCash?: string;
   search?: string;
 }
-
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
 
 export function ExportScopeModal({
   isOpen,
@@ -82,6 +70,18 @@ export function ExportScopeModal({
     const previewText = `1 ${MONTH_NAMES[selectedMonth]} ${selectedYear} – ${lastDay} ${MONTH_NAMES[selectedMonth]} ${selectedYear} (inclusive)`;
     return { startStr, endStr, previewText, lastDay };
   }, [selectedMonth, selectedYear]);
+
+  // Preview target filename dynamically
+  const previewFilename = useMemo(() => {
+    return getAccountingExportFilename({
+      scope,
+      month: selectedMonth + 1,
+      year: selectedYear,
+      startDate: scope === "RANGE" ? startDate : monthInfo.startStr,
+      endDate: scope === "RANGE" ? endDate : monthInfo.endStr,
+      origin,
+    });
+  }, [scope, selectedMonth, selectedYear, startDate, endDate, monthInfo.startStr, monthInfo.endStr, origin]);
 
   // Validate date range on change
   const validateRange = (start: string, end: string): string | null => {
@@ -137,6 +137,11 @@ export function ExportScopeModal({
       const params = new URLSearchParams();
       params.set("accountType", accountType);
       params.set("origin", origin);
+      params.set("scope", scope);
+      if (scope === "MONTH") {
+        params.set("month", String(selectedMonth + 1));
+        params.set("year", String(selectedYear));
+      }
       if (finalStart) params.set("startDate", finalStart);
       if (finalEnd) params.set("endDate", finalEnd);
       if (activeCategory && activeCategory !== "ALL") {
@@ -170,11 +175,19 @@ export function ExportScopeModal({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
 
+      // Generate dynamic filename fallback using the helper
+      const fallbackFilename = getAccountingExportFilename({
+        scope,
+        month: selectedMonth + 1,
+        year: selectedYear,
+        startDate: finalStart,
+        endDate: finalEnd,
+        origin,
+      });
+
       // Extract filename from Content-Disposition header if available
       const disposition = res.headers.get("Content-Disposition");
-      let filename = isPreCompany
-        ? `Foxion_Pre_Company_Transactions_${new Date().toISOString().slice(0, 10)}.xlsx`
-        : `Foxion_Accounts_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      let filename = fallbackFilename;
 
       if (disposition && disposition.includes("filename=")) {
         const match = disposition.match(/filename="?([^";]+)"?/);
@@ -268,7 +281,7 @@ export function ExportScopeModal({
 
         {/* Option 1: Export All Info */}
         {scope === "ALL" && (
-          <div className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-800 space-y-1.5 animate-in fade-in">
+          <div className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-800 space-y-2 animate-in fade-in">
             <div className="flex items-center gap-2 text-slate-300 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span>Full Ledger Export</span>
@@ -276,6 +289,12 @@ export function ExportScopeModal({
             <p className="text-[11px] text-slate-400 leading-relaxed">
               Exports all recorded transactions in this ledger matching the current account and origin settings, without date restrictions.
             </p>
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">Target Filename:</span>
+              <span className="font-medium text-blue-400 font-mono">
+                {previewFilename}
+              </span>
+            </div>
           </div>
         )}
 
@@ -318,11 +337,19 @@ export function ExportScopeModal({
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-              <span className="text-slate-400">Included Period:</span>
-              <span className="font-medium text-emerald-400 font-mono">
-                {monthInfo.previewText}
-              </span>
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Included Period:</span>
+                <span className="font-medium text-emerald-400 font-mono">
+                  {monthInfo.previewText}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Target Filename:</span>
+                <span className="font-medium text-emerald-400 font-mono">
+                  {previewFilename}
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -370,11 +397,19 @@ export function ExportScopeModal({
                 <span>{rangeError}</span>
               </div>
             ) : startDate && endDate ? (
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                <span className="text-slate-400">Range:</span>
-                <span className="font-medium text-cyan-400 font-mono">
-                  {startDate} through {endDate} (inclusive)
-                </span>
+              <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Range:</span>
+                  <span className="font-medium text-cyan-400 font-mono">
+                    {startDate} through {endDate} (inclusive)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Target Filename:</span>
+                  <span className="font-medium text-cyan-400 font-mono">
+                    {previewFilename}
+                  </span>
+                </div>
               </div>
             ) : (
               <p className="text-[11px] text-slate-500">

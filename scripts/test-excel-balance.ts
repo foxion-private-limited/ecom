@@ -8,7 +8,12 @@ import {
   calculateImportBalances,
 } from "../lib/services/transactionService";
 import { importAccountingBatch } from "../lib/excel/excelImporter";
-import { generateAccountingExcel, TransactionExportItem } from "../lib/excel/excelExporter";
+import {
+  generateAccountingExcel,
+  TransactionExportItem,
+  getAccountingExportFilename,
+} from "../lib/excel/excelExporter";
+import { GET as exportRouteGET } from "../app/api/excel/export/route";
 import { parseIndianDate, formatIndianDate } from "../lib/utils";
 import { ExcelAccountingRow } from "../lib/excel/types";
 
@@ -790,7 +795,152 @@ async function runAllTests() {
       console.log("   ✅ Category-filtered export preserved exact ledger balance of ₹10,000.");
     }
 
-    console.log("\n🎉 ALL 12 EXCEL IMPORT & EXPORT BALANCE SCENARIOS PASSED WITH 100% SUCCESS!");
+    // --------------------------------------------------------------------------
+    // Test 13: Dynamic Excel Export Filename Helper Formats
+    // --------------------------------------------------------------------------
+    console.log("\n▶ Test 13: Dynamic Excel Export Filename Formats (Month, Range, All)");
+    {
+      // A. Month exports: {Month}_{Year}_Foxion.xlsx
+      const aug2026 = getAccountingExportFilename({ scope: "MONTH", month: 8, year: 2026 });
+      assert.strictEqual(aug2026, "August_2026_Foxion.xlsx", "August 2026 must produce August_2026_Foxion.xlsx");
+
+      const mar2026 = getAccountingExportFilename({ scope: "MONTH", month: 3, year: 2026 });
+      assert.strictEqual(mar2026, "March_2026_Foxion.xlsx", "March 2026 must produce March_2026_Foxion.xlsx");
+
+      const jan2025 = getAccountingExportFilename({ scope: "MONTH", month: 1, year: 2025 });
+      assert.strictEqual(jan2025, "January_2025_Foxion.xlsx", "January 2025 must produce January_2025_Foxion.xlsx");
+
+      // Verify English month string input
+      const nov2027 = getAccountingExportFilename({ scope: "MONTH", month: "November", year: 2027 });
+      assert.strictEqual(nov2027, "November_2027_Foxion.xlsx", "November 2027 must produce November_2027_Foxion.xlsx");
+
+      // B. Custom Date Range: {DD-MM-YYYY}__{DD-MM-YYYY}_Foxion.xlsx
+      const range1 = getAccountingExportFilename({
+        scope: "RANGE",
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+      });
+      assert.strictEqual(
+        range1,
+        "01-03-2026__31-03-2026_Foxion.xlsx",
+        "Range 01/03/2026–31/03/2026 must produce 01-03-2026__31-03-2026_Foxion.xlsx"
+      );
+
+      const rangeIndian = getAccountingExportFilename({
+        scope: "RANGE",
+        startDate: "15/01/2026",
+        endDate: "20/01/2026",
+      });
+      assert.strictEqual(
+        rangeIndian,
+        "15-01-2026__20-01-2026_Foxion.xlsx",
+        "Range 15/01/2026–20/01/2026 must produce 15-01-2026__20-01-2026_Foxion.xlsx"
+      );
+
+      // Verify no timezone conversion drift shifts the date
+      const isoStart = "2026-08-05T00:00:00.000Z";
+      const isoEnd = "2026-08-25T23:59:59.999Z";
+      const rangeIso = getAccountingExportFilename({
+        scope: "RANGE",
+        startDate: isoStart,
+        endDate: isoEnd,
+      });
+      assert.strictEqual(
+        rangeIso,
+        "05-08-2026__25-08-2026_Foxion.xlsx",
+        "ISO date strings must not shift across timezones"
+      );
+
+      // C. Export All: complete_foxion_accounts.xlsx
+      const allExport = getAccountingExportFilename({ scope: "ALL" });
+      assert.strictEqual(
+        allExport,
+        "complete_foxion_accounts.xlsx",
+        "Export all must produce complete_foxion_accounts.xlsx"
+      );
+      assert.strictEqual(
+        allExport.toLowerCase(),
+        "complete_foxion_accounts.xlsx",
+        "Must be all lowercase"
+      );
+      assert(!allExport.includes("2026"), "Must not append dates or timestamps");
+
+      // Verify only single .xlsx extension on all generated filenames
+      for (const fn of [aug2026, mar2026, jan2025, range1, rangeIndian, allExport]) {
+        assert(fn.endsWith(".xlsx"), `${fn} must end with .xlsx`);
+        assert.strictEqual(fn.split(".xlsx").length, 2, `${fn} must contain exactly one .xlsx extension`);
+      }
+
+      console.log("   ✅ Dynamic filename helper formats verified across all 3 modes.");
+    }
+
+    // --------------------------------------------------------------------------
+    // Test 14: Dynamic Filename in API Route (/api/excel/export)
+    // --------------------------------------------------------------------------
+    console.log("\n▶ Test 14: Dynamic Filename in API Route (/api/excel/export)");
+    {
+      // 1. Month export in API: August 2026
+      const monthReq = new Request(
+        "http://localhost:3000/api/excel/export?accountType=MAIN&origin=COMPANY&scope=MONTH&month=8&year=2026"
+      );
+      const monthRes = await exportRouteGET(monthReq);
+      assert.strictEqual(monthRes.status, 200);
+      const monthDisp = monthRes.headers.get("Content-Disposition");
+      assert(
+        monthDisp && monthDisp.includes('filename="August_2026_Foxion.xlsx"'),
+        `Expected Content-Disposition to have August_2026_Foxion.xlsx, got: ${monthDisp}`
+      );
+
+      // 2. Custom Date Range in API: 01/03/2026 to 31/03/2026
+      const rangeReq = new Request(
+        "http://localhost:3000/api/excel/export?accountType=MAIN&origin=COMPANY&scope=RANGE&startDate=2026-03-01&endDate=2026-03-31"
+      );
+      const rangeRes = await exportRouteGET(rangeReq);
+      // Even if no transactions in that specific month in seeded DB, let's verify header logic or seed 1 tx
+      if (rangeRes.status === 200) {
+        const rangeDisp = rangeRes.headers.get("Content-Disposition");
+        assert(
+          rangeDisp && rangeDisp.includes('filename="01-03-2026__31-03-2026_Foxion.xlsx"'),
+          `Expected Content-Disposition to have 01-03-2026__31-03-2026_Foxion.xlsx, got: ${rangeDisp}`
+        );
+      } else {
+        // Seed 1 transaction in March to verify status 200 and header
+        await Transaction.create({
+          accountType: "MAIN",
+          transactionOrigin: "COMPANY",
+          date: parseIndianDate("10/03/2026")!,
+          description: "March Sale",
+          category: "Sales",
+          debit: 0,
+          credit: 1000,
+          paymentMode: "UPI",
+          bankOrCash: "Bank",
+        });
+        const retryRangeRes = await exportRouteGET(rangeReq);
+        assert.strictEqual(retryRangeRes.status, 200);
+        const rangeDisp = retryRangeRes.headers.get("Content-Disposition");
+        assert(
+          rangeDisp && rangeDisp.includes('filename="01-03-2026__31-03-2026_Foxion.xlsx"'),
+          `Expected Content-Disposition to have 01-03-2026__31-03-2026_Foxion.xlsx, got: ${rangeDisp}`
+        );
+      }
+
+      // 3. Export All in API
+      const allReq = new Request(
+        "http://localhost:3000/api/excel/export?accountType=MAIN&origin=COMPANY&scope=ALL"
+      );
+      const allRes = await exportRouteGET(allReq);
+      assert.strictEqual(allRes.status, 200);
+      const allDisp = allRes.headers.get("Content-Disposition");
+      assert(
+        allDisp && allDisp.includes('filename="complete_foxion_accounts.xlsx"'),
+        `Expected Content-Disposition to have complete_foxion_accounts.xlsx, got: ${allDisp}`
+      );
+
+      console.log("   ✅ API route returns exact dynamic filename in Content-Disposition header.");
+    }
+
+    console.log("\n🎉 ALL 14 EXCEL IMPORT & EXPORT TESTS PASSED WITH 100% SUCCESS!");
   } finally {
     await teardown();
   }

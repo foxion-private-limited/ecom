@@ -121,3 +121,133 @@ export function generateAccountingExcel(
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   return buffer;
 }
+
+export const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+export type ExportScopeType = "ALL" | "MONTH" | "RANGE";
+
+export interface ExportFilenameOptions {
+  scope?: ExportScopeType | string;
+  month?: number | string;
+  year?: number | string;
+  startDate?: string | Date;
+  endDate?: string | Date;
+  origin?: "COMPANY" | "PRE_COMPANY" | string;
+}
+
+/**
+ * Format a date string or Date object into DD-MM-YYYY without timezone conversion drift.
+ * Safely handles YYYY-MM-DD input strings without shifting dates across timezones.
+ */
+export function formatDateForFilename(dateInput: string | Date): string {
+  if (typeof dateInput === "string") {
+    const trimmed = dateInput.trim();
+    // YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss...
+    const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (ymdMatch) {
+      const [, yyyy, mm, dd] = ymdMatch;
+      return `${dd}-${mm}-${yyyy}`;
+    }
+    // DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+    if (dmyMatch) {
+      const [, dd, mm, yyyy] = dmyMatch;
+      return `${dd.padStart(2, "0")}-${mm.padStart(2, "0")}-${yyyy}`;
+    }
+  }
+
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  if (!isNaN(d.getTime())) {
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const yyyy = String(d.getUTCFullYear());
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  return String(dateInput).replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+/**
+ * Generates dynamic filename for Excel exports according to selected mode:
+ * 1. Month: {Month}_{Year}_Foxion.xlsx (e.g. August_2026_Foxion.xlsx)
+ * 2. Custom Date Range: {DD-MM-YYYY}__{DD-MM-YYYY}_Foxion.xlsx (e.g. 01-03-2026__31-03-2026_Foxion.xlsx)
+ * 3. All Transactions: complete_foxion_accounts.xlsx (lowercase, no timestamp)
+ */
+export function getAccountingExportFilename(options: ExportFilenameOptions = {}): string {
+  const { scope, month, year, startDate, endDate, origin } = options;
+
+  // 1. Export by Month: {Month}_{Year}_Foxion.xlsx
+  const isMonthScope =
+    scope === "MONTH" ||
+    (scope === undefined && month !== undefined && year !== undefined);
+
+  if (isMonthScope) {
+    let resolvedMonthName = "";
+    let resolvedYear = year ? String(year).trim() : "";
+
+    if (month !== undefined) {
+      if (typeof month === "number" || /^\d+$/.test(String(month).trim())) {
+        const mNum = Number(month);
+        // 1-based (1..12) or 0-based (0..11)
+        if (mNum >= 1 && mNum <= 12) {
+          resolvedMonthName = MONTH_NAMES[mNum - 1];
+        } else if (mNum >= 0 && mNum <= 11) {
+          resolvedMonthName = MONTH_NAMES[mNum];
+        }
+      } else if (typeof month === "string") {
+        const found = MONTH_NAMES.find(
+          (m) => m.toLowerCase() === month.trim().toLowerCase()
+        );
+        if (found) resolvedMonthName = found;
+      }
+    }
+
+    // Fallback: extract month & year from startDate if not explicitly given
+    if ((!resolvedMonthName || !resolvedYear) && startDate) {
+      const s = String(startDate);
+      const ymd = s.match(/^(\d{4})-(\d{2})/);
+      if (ymd) {
+        if (!resolvedYear) resolvedYear = ymd[1];
+        if (!resolvedMonthName) {
+          const mIdx = parseInt(ymd[2], 10) - 1;
+          if (mIdx >= 0 && mIdx < 12) resolvedMonthName = MONTH_NAMES[mIdx];
+        }
+      }
+    }
+
+    if (resolvedMonthName && resolvedYear) {
+      return `${resolvedMonthName}_${resolvedYear}_Foxion.xlsx`;
+    }
+  }
+
+  // 2. Export by Custom Date Range: {DD-MM-YYYY}__{DD-MM-YYYY}_Foxion.xlsx
+  const isRangeScope =
+    scope === "RANGE" ||
+    (Boolean(startDate && endDate) && scope !== "ALL" && !isMonthScope);
+
+  if (isRangeScope && startDate && endDate) {
+    const startFormatted = formatDateForFilename(startDate);
+    const endFormatted = formatDateForFilename(endDate);
+    return `${startFormatted}__${endFormatted}_Foxion.xlsx`;
+  }
+
+  // 3. Export All Transactions: complete_foxion_accounts.xlsx
+  if (origin === "PRE_COMPANY") {
+    return "complete_foxion_pre_company.xlsx";
+  }
+  return "complete_foxion_accounts.xlsx";
+}
+
