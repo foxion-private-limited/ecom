@@ -122,6 +122,7 @@ export async function clearAllDummyData() {
     { name: "Advertising & Marketing", slug: "advertising", type: "EXPENSE" as const, description: "Meta ads, Google ads, influencers" },
     { name: "Logistics & Packaging", slug: "logistics", type: "EXPENSE" as const, description: "Corrugated boxes, bubble wrap, tape" },
     { name: "Purchases / Inventory Inward", slug: "purchases-inward", type: "EXPENSE" as const, description: "Product purchase costs" },
+    { name: "CRED", slug: "cred", type: "EXPENSE" as const, description: "CRED transactions and card payments" },
   ];
 
   for (const c of categoryDefs) {

@@ -60,7 +60,7 @@ export default function ProductsPage() {
   }, [fetchProducts]);
 
   useEffect(() => {
-    fetch("/api/categories?type=PRODUCT")
+    fetch("/api/inventory/categories")
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) setCategories(data);

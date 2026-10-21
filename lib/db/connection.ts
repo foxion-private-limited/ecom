@@ -75,6 +75,14 @@ export async function connectDB(): Promise<typeof mongoose> {
         console.warn("[Foxion DB] Auto-seed warning:", seedErr);
       }
     }
+
+    // Safely ensure CRED accounting category exists in all environments
+    try {
+      const { ensureCredCategory } = await import("@/lib/services/categoryService");
+      await ensureCredCategory();
+    } catch (credErr) {
+      console.warn("[Foxion DB] Error verifying CRED category:", credErr);
+    }
   } catch (e) {
     cached!.promise = null;
     throw e;

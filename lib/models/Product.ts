@@ -30,7 +30,7 @@ const ProductSchema = new Schema<IProduct>(
     },
     category: {
       type: Schema.Types.ObjectId,
-      ref: "Category",
+      ref: "ProductCategory",
       required: true,
       index: true,
     },

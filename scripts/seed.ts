@@ -69,6 +69,7 @@ export async function runSeed(options: SeedOptions = {}) {
     { name: "Office Setup", slug: "office-setup", type: "EXPENSE" as const, description: "Furniture, hardware, and office readiness" },
     { name: "Equipment", slug: "equipment", type: "EXPENSE" as const, description: "Computers, printers, machinery" },
     { name: "Other Pre-Company Expense", slug: "other-pre-company-expense", type: "EXPENSE" as const, description: "Miscellaneous expenses prior to company bank opening" },
+    { name: "CRED", slug: "cred", type: "EXPENSE" as const, description: "CRED transactions and card payments" },
   ];
 
   let categoriesCreated = 0;

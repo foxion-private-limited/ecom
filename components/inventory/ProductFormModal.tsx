@@ -33,7 +33,7 @@ export function ProductFormModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetch("/api/categories?type=PRODUCT")
+      fetch("/api/inventory/categories")
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {

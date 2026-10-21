@@ -199,16 +199,25 @@ export async function getDashboardData(options: DashboardFilterOptions = {}) {
       { $unwind: { path: "$prod", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
+          from: "product_categories",
+          localField: "prod.category",
+          foreignField: "_id",
+          as: "prodCat",
+        },
+      },
+      { $unwind: { path: "$prodCat", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
           from: "categories",
           localField: "prod.category",
           foreignField: "_id",
-          as: "cat",
+          as: "legacyCat",
         },
       },
-      { $unwind: { path: "$cat", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$legacyCat", preserveNullAndEmptyArrays: true } },
       {
         $group: {
-          _id: { $ifNull: ["$cat.name", "General"] },
+          _id: { $ifNull: ["$prodCat.name", { $ifNull: ["$legacyCat.name", "General"] }] },
           value: { $sum: "$items.total" },
           units: { $sum: "$items.quantity" },
         },

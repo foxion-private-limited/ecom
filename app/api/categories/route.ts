@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/lib/db/connection";
-import { Category } from "@/lib/models/Category";
+import {
+  getAccountingCategories,
+  createAccountingCategory,
+} from "@/lib/services/categoryService";
 import { categorySchema } from "@/lib/validations";
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const type = searchParams.get("type");
+    const type = searchParams.get("type") || undefined;
+    const search = searchParams.get("search") || undefined;
 
-    await connectDB();
-    const query: any = { isActive: true };
-    if (type) query.type = type;
-
-    const categories = await Category.find(query).sort({ name: 1 }).lean();
+    const categories = await getAccountingCategories({ type, search });
     return NextResponse.json(categories);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to fetch categories";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -30,32 +30,10 @@ export async function POST(req: Request) {
       );
     }
 
-    await connectDB();
-
-    const slug = parsed.data.name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-");
-
-    const existing = await Category.findOne({
-      name: { $regex: new RegExp(`^${parsed.data.name.trim()}$`, "i") },
-      type: parsed.data.type,
-    });
-
-    if (existing) {
-      return NextResponse.json(
-        { error: "A category with this name already exists" },
-        { status: 400 }
-      );
-    }
-
-    const category = await Category.create({
-      ...parsed.data,
-      slug,
-    });
-
-    return NextResponse.json({ success: true, category });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const category = await createAccountingCategory(parsed.data);
+    return NextResponse.json({ success: true, category }, { status: 201 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create category";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

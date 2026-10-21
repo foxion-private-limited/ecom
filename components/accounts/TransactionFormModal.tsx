@@ -596,6 +596,7 @@ export function TransactionFormModal({
               <option value="Salaries & Wages" />
               <option value="Advertising & Marketing" />
               <option value="Other Pre-Company Expense" />
+              <option value="CRED" />
             </datalist>
           </div>
 

@@ -42,6 +42,7 @@ const navItems: NavItem[] = [
     icon: BookOpen,
     children: [
       { title: "Accounts", href: "/accounts/main", icon: BookOpen },
+      { title: "Categories", href: "/accounts/categories", icon: Tag },
       { title: "Pre-Company Transactions", href: "/accounts/pre-company", icon: History },
       { title: "Import", href: "/accounts/import", icon: FileSpreadsheet },
     ],

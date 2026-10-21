@@ -6,6 +6,7 @@ import {
   StockMovementType,
 } from "@/lib/models/StockMovement";
 import { Category } from "@/lib/models/Category";
+import { ProductCategory } from "@/lib/models/ProductCategory";
 import { Order } from "@/lib/models/Order";
 import { Purchase } from "@/lib/models/Purchase";
 import mongoose from "mongoose";
@@ -52,8 +53,13 @@ export async function getProducts(options: ProductFilterOptions = {}) {
     if (mongoose.Types.ObjectId.isValid(category)) {
       query.category = category;
     } else {
-      const cat = await Category.findOne({ name: category });
-      if (cat) query.category = cat._id;
+      const prodCat = await ProductCategory.findOne({ name: category });
+      if (prodCat) {
+        query.category = prodCat._id;
+      } else {
+        const cat = await Category.findOne({ name: category });
+        if (cat) query.category = cat._id;
+      }
     }
   }
 

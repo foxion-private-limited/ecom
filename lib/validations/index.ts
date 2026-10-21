@@ -76,6 +76,14 @@ export const categorySchema = z.object({
 
 export type CategoryFormData = z.infer<typeof categorySchema>;
 
+export const productCategorySchema = z.object({
+  name: z.string().min(1, "Product category name is required").trim(),
+  description: z.string().optional().default(""),
+  isActive: z.boolean().default(true),
+});
+
+export type ProductCategoryFormData = z.infer<typeof productCategorySchema>;
+
 export const purchaseItemSchema = z.object({
   productId: z.string().min(1, "Product is required"),
   sku: z.string().min(1, "SKU is required"),
