@@ -10,7 +10,8 @@
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "clean": "tsx --env-file=.env.local scripts/clear-dummy-data.ts",
     "test:invoices": "tsx scripts/test-invoice-system.ts",
-    "test:excel-balance": "tsx scripts/test-excel-balance.ts"
+    "test:excel-balance": "tsx scripts/test-excel-balance.ts",
+    "test:duplicate-date": "tsx scripts/test-duplicate-date-validation.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

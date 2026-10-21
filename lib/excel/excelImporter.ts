@@ -3,7 +3,7 @@ import { Transaction, AccountType, TransactionOrigin } from "@/lib/models/Transa
 import { ImportBatch } from "@/lib/models/ImportBatch";
 import { Category } from "@/lib/models/Category";
 import { ExcelAccountingRow, ExcelImportResult } from "./types";
-import { parseIndianDate } from "@/lib/utils";
+import { parseIndianDate, getISTCalendarDate } from "@/lib/utils";
 import {
   getPreviousTransactionBalance,
   calculateImportBalances,
@@ -25,7 +25,119 @@ export async function importAccountingBatch(
   const errors: string[] = [];
 
   try {
-    // 1. Ensure unique categories exist in DB
+    // 1. Pre-validation: Check for duplicate transaction dates within the Excel file itself
+    const seenImportDates = new Map<string, number>(); // dateStr -> rowNumber
+    const internalDuplicates: { dateStr: string; displayDate: string; rows: number[] }[] = [];
+
+    validRows.forEach((row, idx) => {
+      const rowNum = row.excelRowNumber ?? (row.slNo ? Number(row.slNo) : idx + 1);
+      const cal = getISTCalendarDate(row.date);
+      if (!cal) return;
+
+      if (seenImportDates.has(cal.dateStr)) {
+        const firstRow = seenImportDates.get(cal.dateStr)!;
+        const existing = internalDuplicates.find((d) => d.dateStr === cal.dateStr);
+        if (existing) {
+          existing.rows.push(rowNum);
+        } else {
+          internalDuplicates.push({
+            dateStr: cal.dateStr,
+            displayDate: cal.displayDate,
+            rows: [firstRow, rowNum],
+          });
+        }
+      } else {
+        seenImportDates.set(cal.dateStr, rowNum);
+      }
+    });
+
+    if (internalDuplicates.length > 0) {
+      const details = internalDuplicates
+        .map((d) => `${d.displayDate} (rows ${d.rows.join(", ")})`)
+        .join("; ");
+      const msg = `Import failed: The import file contains duplicate transaction dates: ${details}. Each transaction in the MAIN account must have a unique date.`;
+      errors.push(msg);
+      return {
+        success: false,
+        batchId,
+        importedCount: 0,
+        skippedCount: 0,
+        errors,
+      };
+    }
+
+    // 2. Pre-validation: Check transaction dates against existing database records in the MAIN account
+    const importDateStrs = Array.from(seenImportDates.keys());
+    if (importDateStrs.length > 0) {
+      const dateIntervalQueries = importDateStrs.map((d) => {
+        const [y, m, day] = d.split("-").map(Number);
+        const start = new Date(Date.UTC(y, m - 1, day, 0, 0, 0) - 5.5 * 3600 * 1000);
+        const end = new Date(Date.UTC(y, m - 1, day, 23, 59, 59, 999) - 5.5 * 3600 * 1000);
+        return { date: { $gte: start, $lte: end } };
+      });
+
+      const existingInDb = await Transaction.find({
+        accountType: "MAIN",
+        isArchived: { $ne: true },
+        $or: [
+          { normalizedDate: { $in: importDateStrs } },
+          ...dateIntervalQueries,
+        ],
+      }).lean();
+
+      if (existingInDb.length > 0) {
+        const dbDateMap = new Map<string, string>(); // dateStr -> displayDate
+        for (const tx of existingInDb) {
+          const cal = getISTCalendarDate(tx.date);
+          if (cal) {
+            dbDateMap.set(cal.dateStr, cal.displayDate);
+          }
+          if (tx.normalizedDate && !dbDateMap.has(tx.normalizedDate)) {
+            dbDateMap.set(tx.normalizedDate, cal ? cal.displayDate : tx.normalizedDate);
+          }
+        }
+
+        // Map which imported rows conflict
+        const conflictingRowsMap = new Map<string, number[]>(); // displayDate -> rowNumbers[]
+        validRows.forEach((row, idx) => {
+          const rowNum = row.excelRowNumber ?? (row.slNo ? Number(row.slNo) : idx + 1);
+          const cal = getISTCalendarDate(row.date);
+          if (cal && dbDateMap.has(cal.dateStr)) {
+            const disp = cal.displayDate;
+            const current = conflictingRowsMap.get(disp) || [];
+            current.push(rowNum);
+            conflictingRowsMap.set(disp, current);
+          }
+        });
+
+        const conflictingDates = Array.from(conflictingRowsMap.keys());
+        let mainErrMsg = "";
+        if (conflictingDates.length === 1) {
+          const date = conflictingDates[0];
+          const rows = conflictingRowsMap.get(date) || [];
+          mainErrMsg = `Import failed: A transaction already exists for ${date}.`;
+          if (rows.length > 0) {
+            mainErrMsg += ` (Affects row ${rows.join(", ")})`;
+          }
+        } else {
+          const details = conflictingDates
+            .map((d) => `${d} (row ${conflictingRowsMap.get(d)?.join(", ")})`)
+            .join(", ");
+          mainErrMsg = `Import failed: Transactions already exist for the following dates: ${details}.`;
+        }
+
+        errors.push(mainErrMsg);
+        return {
+          success: false,
+          batchId,
+          importedCount: 0,
+          skippedCount: 0,
+          errors,
+        };
+      }
+    }
+
+    // 3. Ensure unique categories exist in DB (only executed after all validations pass)
     const categoryNames = Array.from(
       new Set(validRows.map((r) => r.category).filter(Boolean))
     );
@@ -43,7 +155,7 @@ export async function importAccountingBatch(
       }
     }
 
-    // 2. Identify earliest transaction date and resolve legitimate opening balance
+    // 4. Identify earliest transaction date and resolve legitimate opening balance
     let earliestDate: Date | null = null;
     for (const r of validRows) {
       const parsed = parseIndianDate(r.date);
@@ -61,10 +173,11 @@ export async function importAccountingBatch(
     // Calculate sequential balances chronologically from opening balance
     const balancedRows = calculateImportBalances(validRows, openingBalance);
 
-    // 3. Prepare transaction documents with sequential balances
+    // 5. Prepare transaction documents with sequential balances and normalized dates
     const txDocs = [];
     for (const row of balancedRows) {
       const parsedDate = parseIndianDate(row.date) || new Date();
+      const cal = getISTCalendarDate(parsedDate);
       const rowOrigin = row.transactionOrigin || origin;
       const bankOrCash = row.bankOrCash || (rowOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank");
       let paymentSource = row.paymentSource;
@@ -81,6 +194,7 @@ export async function importAccountingBatch(
         paidBy: row.paidBy?.trim() || undefined,
         paymentSource,
         date: parsedDate,
+        normalizedDate: cal?.dateStr,
         description: row.description,
         category: row.category,
         debit: Number(row.debit) || 0,
@@ -106,7 +220,7 @@ export async function importAccountingBatch(
       importedCount = txDocs.length;
     }
 
-    // 3. Record the ImportBatch document
+    // 6. Record the ImportBatch document
     await ImportBatch.create({
       batchId,
       filename,
@@ -129,14 +243,17 @@ export async function importAccountingBatch(
       errors,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to save imported rows";
+    let message = err instanceof Error ? err.message : "Failed to save imported rows";
+    if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 11000) {
+      message = "Import failed: A transaction already exists for one of the dates in this import.";
+    }
     console.error("[Excel Importer] Batch import failed:", message);
     errors.push(message);
     return {
       success: false,
       batchId,
-      importedCount,
-      skippedCount,
+      importedCount: 0,
+      skippedCount: 0,
       errors,
     };
   }

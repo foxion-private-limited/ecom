@@ -1,7 +1,8 @@
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connection";
 import { Transaction, ITransaction, AccountType, TransactionOrigin } from "@/lib/models/Transaction";
 import { Category } from "@/lib/models/Category";
-import { parseIndianDate, toInputDateString } from "@/lib/utils";
+import { parseIndianDate, toInputDateString, getISTCalendarDate } from "@/lib/utils";
 
 export interface TransactionFilterOptions {
   accountType?: AccountType | string;
@@ -57,8 +58,7 @@ export interface PaginatedTransactionsResult {
 export async function getLiquidBalances(
   asOfDate?: Date | string
 ): Promise<LiquidBalances> {
-  await connectDB();
-  const match: any = {
+  const match: Record<string, unknown> = {
     isArchived: { $ne: true },
     // Only physical company bank/cash funds!
     // Personal Bank and Personal Cash must NEVER affect company bank or company cash!
@@ -123,7 +123,7 @@ export async function getTransactions(
   } = options;
 
   const resolvedAccountType = accountType && accountType !== "ALL" ? accountType : "MAIN";
-  const baseAccountQuery: any = { isArchived: { $ne: true }, accountType: resolvedAccountType };
+  const baseAccountQuery: Record<string, unknown> = { isArchived: { $ne: true }, accountType: resolvedAccountType };
 
   if (transactionOrigin && transactionOrigin !== "ALL") {
     if (transactionOrigin === "PRE_COMPANY") {
@@ -136,30 +136,31 @@ export async function getTransactions(
     }
   }
 
-  const query: any = { ...baseAccountQuery };
+  const query: Record<string, unknown> = { ...baseAccountQuery };
 
   if (startDate || endDate) {
-    query.date = {};
+    const dateQuery: { $gte?: Date; $lte?: Date } = {};
     if (startDate) {
       if (typeof startDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
         const [sYear, sMonth, sDay] = startDate.split("-").map(Number);
-        query.date.$gte = new Date(Date.UTC(sYear, sMonth - 1, sDay, 0, 0, 0, 0));
+        dateQuery.$gte = new Date(Date.UTC(sYear, sMonth - 1, sDay, 0, 0, 0, 0));
       } else {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
-        query.date.$gte = start;
+        dateQuery.$gte = start;
       }
     }
     if (endDate) {
       if (typeof endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
         const [eYear, eMonth, eDay] = endDate.split("-").map(Number);
-        query.date.$lte = new Date(Date.UTC(eYear, eMonth - 1, eDay, 23, 59, 59, 999));
+        dateQuery.$lte = new Date(Date.UTC(eYear, eMonth - 1, eDay, 23, 59, 59, 999));
       } else {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        query.date.$lte = end;
+        dateQuery.$lte = end;
       }
     }
+    query.date = dateQuery;
   }
 
   if (category && category !== "ALL") {
@@ -204,7 +205,7 @@ export async function getTransactions(
   }
 
   // Calculate overall summary using aggregation (for the whole filtered set)
-  const summaryPipeline: any[] = [{ $match: query }];
+  const summaryPipeline: mongoose.PipelineStage[] = [{ $match: query }];
   summaryPipeline.push({
     $group: {
       _id: null,
@@ -414,11 +415,88 @@ export async function getTransactions(
   };
 }
 
+/**
+ * Check whether a transaction already exists on the same calendar date (IST) in the MAIN account.
+ * Excludes archived records and optionally excludes the transaction being edited (excludeId).
+ */
+export async function checkTransactionDateConflict(options: {
+  date: Date | string;
+  accountType?: AccountType | string;
+  origin?: TransactionOrigin | string;
+  excludeId?: string;
+}): Promise<{ exists: boolean; conflictingDate: string; existingTransaction?: ITransaction | null }> {
+  await connectDB();
+
+  const cal = getISTCalendarDate(options.date);
+  if (!cal) {
+    return { exists: false, conflictingDate: "" };
+  }
+
+  const query: Record<string, unknown> = {
+    accountType: options.accountType || "MAIN",
+    isArchived: { $ne: true },
+    $or: [
+      { normalizedDate: cal.dateStr },
+      { date: { $gte: cal.start, $lte: cal.end } },
+    ],
+  };
+
+  const origin = options.origin || "COMPANY";
+  if (origin === "PRE_COMPANY") {
+    query.transactionOrigin = "PRE_COMPANY";
+  } else if (origin !== "ALL") {
+    query.$and = [
+      {
+        $or: [
+          { transactionOrigin: "COMPANY" },
+          { transactionOrigin: { $exists: false } },
+        ],
+      },
+    ];
+  }
+
+  if (options.excludeId) {
+    const excId = String(options.excludeId);
+    if (mongoose.Types.ObjectId.isValid(excId)) {
+      query._id = { $ne: new mongoose.Types.ObjectId(excId) };
+    } else {
+      query._id = { $ne: excId };
+    }
+  }
+
+  const existing = await Transaction.findOne(query).lean();
+  if (existing) {
+    return {
+      exists: true,
+      conflictingDate: cal.displayDate,
+      existingTransaction: existing as unknown as ITransaction,
+    };
+  }
+
+  return { exists: false, conflictingDate: cal.displayDate };
+}
+
 export async function createTransaction(
   data: Partial<ITransaction>,
   userEmail: string = "System"
 ): Promise<ITransaction> {
   await connectDB();
+
+  const transactionOrigin = data.transactionOrigin || "COMPANY";
+
+  // Prevent duplicate transaction dates in the MAIN account
+  if (data.date) {
+    const conflict = await checkTransactionDateConflict({
+      date: data.date,
+      accountType: "MAIN",
+      origin: transactionOrigin,
+    });
+    if (conflict.exists) {
+      throw new Error("A transaction already exists for this date. Please select another date.");
+    }
+  }
+
+  const cal = data.date ? getISTCalendarDate(data.date) : null;
 
   // Ensure category exists
   if (data.category) {
@@ -435,7 +513,6 @@ export async function createTransaction(
     }
   }
 
-  const transactionOrigin = data.transactionOrigin || "COMPANY";
   const bankOrCash = data.bankOrCash || (transactionOrigin === "PRE_COMPANY" ? "Personal Bank" : "Bank");
   let paymentSource = data.paymentSource;
   if (!paymentSource) {
@@ -445,17 +522,25 @@ export async function createTransaction(
     else paymentSource = "Company Bank";
   }
 
-  const tx = await Transaction.create({
-    ...data,
-    accountType: "MAIN",
-    transactionOrigin,
-    bankOrCash,
-    paymentSource,
-    paidBy: data.paidBy?.trim(),
-    createdBy: userEmail,
-  });
+  try {
+    const tx = await Transaction.create({
+      ...data,
+      accountType: "MAIN",
+      transactionOrigin,
+      bankOrCash,
+      paymentSource,
+      paidBy: data.paidBy?.trim(),
+      normalizedDate: cal?.dateStr,
+      createdBy: userEmail,
+    });
 
-  return tx;
+    return tx;
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 11000) {
+      throw new Error("A transaction already exists for this date. Please select another date.");
+    }
+    throw err;
+  }
 }
 
 export async function updateTransaction(
@@ -463,7 +548,34 @@ export async function updateTransaction(
   data: Partial<ITransaction>
 ): Promise<ITransaction | null> {
   await connectDB();
-  return Transaction.findByIdAndUpdate(id, { ...data, accountType: "MAIN" }, { new: true });
+
+  const updateData: Partial<ITransaction> = { ...data, accountType: "MAIN" };
+
+  if (data.date) {
+    const conflict = await checkTransactionDateConflict({
+      date: data.date,
+      accountType: "MAIN",
+      origin: data.transactionOrigin,
+      excludeId: id,
+    });
+    if (conflict.exists) {
+      throw new Error("A transaction already exists for this date. Please select another date.");
+    }
+
+    const cal = getISTCalendarDate(data.date);
+    if (cal) {
+      updateData.normalizedDate = cal.dateStr;
+    }
+  }
+
+  try {
+    return await Transaction.findByIdAndUpdate(id, updateData, { new: true });
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 11000) {
+      throw new Error("A transaction already exists for this date. Please select another date.");
+    }
+    throw err;
+  }
 }
 
 export async function archiveTransaction(id: string): Promise<boolean> {

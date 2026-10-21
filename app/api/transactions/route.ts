@@ -39,10 +39,11 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json(result);
-  } catch (error: any) {
-    console.error("GET transactions error:", error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to fetch transactions";
+    console.error("GET transactions error:", message);
     return NextResponse.json(
-      { error: error.message || "Failed to fetch transactions" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -72,11 +73,13 @@ export async function POST(req: Request) {
     );
 
     return NextResponse.json({ success: true, transaction: tx });
-  } catch (error: any) {
-    console.error("POST transaction error:", error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create transaction";
+    console.error("POST transaction error:", message);
+    const isConflict = message.includes("already exists for this date");
     return NextResponse.json(
-      { error: error.message || "Failed to create transaction" },
-      { status: 500 }
+      { error: message },
+      { status: isConflict ? 409 : 500 }
     );
   }
 }

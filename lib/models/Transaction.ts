@@ -34,6 +34,7 @@ export interface ITransaction extends Document {
   sourceId?: mongoose.Types.ObjectId;
   importBatchId?: string;
   isArchived: boolean;
+  normalizedDate?: string;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -63,6 +64,7 @@ const TransactionSchema = new Schema<ITransaction>(
       index: true,
     },
     date: { type: Date, required: true, default: Date.now, index: true },
+    normalizedDate: { type: String, index: true },
     description: { type: String, required: true, trim: true, index: true },
     category: { type: String, required: true, trim: true, index: true },
     debit: { type: Number, required: true, default: 0, min: 0 },
@@ -109,6 +111,18 @@ TransactionSchema.index({ accountType: 1, transactionOrigin: 1, date: -1, isArch
 TransactionSchema.index({ transactionOrigin: 1, date: -1, isArchived: 1 });
 TransactionSchema.index({ bankOrCash: 1, date: -1, isArchived: 1 });
 TransactionSchema.index({ category: 1, date: -1 });
+
+// Database-level uniqueness constraint to prevent race conditions on duplicate transaction dates
+TransactionSchema.index(
+  { accountType: 1, transactionOrigin: 1, normalizedDate: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      isArchived: { $ne: true },
+      normalizedDate: { $type: "string" },
+    },
+  }
+);
 
 export const Transaction: Model<ITransaction> =
   mongoose.models.Transaction ||

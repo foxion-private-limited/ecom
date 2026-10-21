@@ -13,8 +13,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
     return NextResponse.json({ success: true, transaction: updated });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to update transaction";
+    const isConflict = message.includes("already exists for this date");
+    return NextResponse.json({ error: message }, { status: isConflict ? 409 : 500 });
   }
 }
 
@@ -29,7 +31,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to archive transaction";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

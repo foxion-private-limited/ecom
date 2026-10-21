@@ -34,6 +34,19 @@ export async function POST(req: Request) {
       typeof openingBalance === "number" ? { initialBalance: openingBalance } : undefined
     );
 
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.errors[0] || "Import failed",
+          errors: result.errors,
+          batchId: result.batchId,
+          importedCount: result.importedCount,
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(result);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to import rows";

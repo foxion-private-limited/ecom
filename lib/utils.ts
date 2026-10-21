@@ -182,3 +182,116 @@ export function toInputDateString(dateInput: Date | string | number | null | und
 
   return `${year}-${month}-${day}`;
 }
+
+export interface ISTCalendarDate {
+  dateStr: string; // Normalized YYYY-MM-DD
+  displayDate: string; // Indian DD/MM/YYYY
+  start: Date; // 00:00:00.000 IST (in UTC)
+  end: Date; // 23:59:59.999 IST (in UTC)
+  year: number;
+  month: number;
+  day: number;
+}
+
+/**
+ * Normalizes any date input (string, Date, timestamp, Excel serial) into its exact IST calendar date.
+ * Avoids any timezone off-by-one errors and does NOT rely on raw new Date("YYYY-MM-DD").
+ * Start is 00:00:00.000 IST (previous day 18:30:00.000 UTC).
+ * End is 23:59:59.999 IST (current day 18:29:59.999 UTC).
+ */
+export function getISTCalendarDate(
+  val: Date | string | number | null | undefined
+): ISTCalendarDate | null {
+  if (val === null || val === undefined || val === "") return null;
+
+  let year: number;
+  let month: number;
+  let day: number;
+
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+
+    // Matches DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+    if (dmyMatch) {
+      day = parseInt(dmyMatch[1], 10);
+      month = parseInt(dmyMatch[2], 10);
+      year = parseInt(dmyMatch[3], 10);
+    } else {
+      // Matches YYYY-MM-DD (e.g. from <input type="date">) without timestamp
+      const ymdMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:$|[^\d])/);
+      if (ymdMatch && !trimmed.includes("T")) {
+        year = parseInt(ymdMatch[1], 10);
+        month = parseInt(ymdMatch[2], 10);
+        day = parseInt(ymdMatch[3], 10);
+      } else {
+        // Fallback for ISO strings with T or general date strings
+        const d = new Date(trimmed);
+        if (isNaN(d.getTime())) return null;
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Kolkata",
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).formatToParts(d);
+        day = parseInt(parts.find((p) => p.type === "day")?.value || "1", 10);
+        month = parseInt(parts.find((p) => p.type === "month")?.value || "1", 10);
+        year = parseInt(parts.find((p) => p.type === "year")?.value || "2026", 10);
+      }
+    }
+  } else {
+    // Date object or number (timestamp / Excel serial)
+    let d: Date;
+    if (typeof val === "number" && val > 0 && val < 100000) {
+      // Excel serial date number
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      d = new Date(excelEpoch.getTime() + Math.round(val * 86400 * 1000));
+    } else {
+      d = val instanceof Date ? val : new Date(val);
+    }
+
+    if (isNaN(d.getTime())) return null;
+
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).formatToParts(d);
+    day = parseInt(parts.find((p) => p.type === "day")?.value || "1", 10);
+    month = parseInt(parts.find((p) => p.type === "month")?.value || "1", 10);
+    year = parseInt(parts.find((p) => p.type === "year")?.value || "2026", 10);
+  }
+
+  if (
+    isNaN(day) ||
+    isNaN(month) ||
+    isNaN(year) ||
+    day < 1 ||
+    day > 31 ||
+    month < 1 ||
+    month > 12 ||
+    year < 1900 ||
+    year > 2100
+  ) {
+    return null;
+  }
+
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - istOffsetMs);
+  const end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - istOffsetMs);
+  const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const displayDate = `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
+
+  return {
+    dateStr,
+    displayDate,
+    start,
+    end,
+    year,
+    month,
+    day,
+  };
+}
+
