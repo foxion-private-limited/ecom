@@ -55,6 +55,7 @@ export async function POST(req: Request) {
       }
     }
 
+    const occupiedDates = new Set<string>();
     if (datesToCheck.length > 0) {
       const existingTxs = await Transaction.find({
         accountType: "MAIN",
@@ -66,7 +67,6 @@ export async function POST(req: Request) {
       }).lean();
 
       if (existingTxs.length > 0) {
-        const occupiedDates = new Set<string>();
         for (const tx of existingTxs) {
           const cal = getISTCalendarDate(tx.date);
           if (cal) occupiedDates.add(cal.dateStr);
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
           if (!r.data.date) continue;
           const cal = getISTCalendarDate(r.data.date);
           if (cal && occupiedDates.has(cal.dateStr)) {
-            const errMessage = `A transaction already exists for ${cal.displayDate}`;
+            const errMessage = `Duplicate transaction date: ${cal.displayDate}. A transaction already exists for this date.`;
             const howToFix = `A transaction is already recorded for ${cal.displayDate} in the MAIN account. Duplicate transaction dates are not permitted.`;
             const errItem: ExcelValidationErrorItem = {
               sheetName: r.sheetName,
@@ -130,6 +130,7 @@ export async function POST(req: Request) {
       summary: validationSummary,
       openingBalance,
       earliestDate: earliestDate ? earliestDate.toISOString() : null,
+      occupiedDbDates: Array.from(occupiedDates),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to parse and validate Excel file";

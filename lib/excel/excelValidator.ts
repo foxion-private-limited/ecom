@@ -483,7 +483,7 @@ export function validateExcelRows(
       if (cal) {
         if (seenDates.has(cal.dateStr)) {
           const prevRow = seenDates.get(cal.dateStr)!;
-          const dupError = `Duplicate transaction date '${cal.displayDate}' in file (already used in row ${prevRow})`;
+          const dupError = `Duplicate transaction date: ${cal.displayDate}. Another transaction in row ${prevRow} has the same date.`;
           const dupHowToFix = `A transaction should not be allowed if a transaction already exists on the same date. Row ${prevRow} also has date ${cal.displayDate}. Ensure all transactions have distinct dates.`;
           validation.fieldErrors["date"] = dupError;
           const errorItem: ExcelValidationErrorItem = {

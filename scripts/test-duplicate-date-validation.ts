@@ -13,6 +13,8 @@ import { parseIndianDate, getISTCalendarDate } from "../lib/utils";
 import { ExcelAccountingRow } from "../lib/excel/types";
 import { connectDB } from "../lib/db/connection";
 import { GET as checkDateGET, POST as checkDatePOST } from "../app/api/transactions/check-date/route";
+import { POST as validatePOST } from "../app/api/excel/validate/route";
+import * as XLSX from "xlsx";
 
 async function setup() {
   await connectDB();
@@ -441,7 +443,71 @@ async function runAllTests() {
       console.log("   ✅ Valid import batch saved all records with normalized dates and correct balances.");
     }
 
-    console.log("\n🎉 ALL 10 DUPLICATE DATE VALIDATION TESTS PASSED WITH 100% SUCCESS!");
+    // --------------------------------------------------------------------------
+    // Test 11: Initial Excel validation stage detects duplicates before Review & Import
+    // --------------------------------------------------------------------------
+    console.log("\n▶ Test 11: Initial Excel validation stage detects DB and file duplicates under Invalid Errors");
+    {
+      // 10/08/2026 already exists in DB
+      const wsData = [
+        ["Sl No", "Date", "Description", "Category", "Debit", "Credit", "Payment Mode", "Bank / Cash"],
+        [1, "10/08/2026", "Row with DB duplicate date", "General", 500, 0, "Bank Transfer", "Bank"],
+        [2, "15/08/2026", "Row with internal duplicate 1", "General", 300, 0, "UPI", "Bank"],
+        [3, "15/08/2026", "Row with internal duplicate 2", "General", 200, 0, "UPI", "Bank"],
+        [4, "25/09/2026", "Row with distinct unused date", "Sales", 0, 1000, "Bank Transfer", "Bank"],
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Transactions");
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+      const file = new File([buffer], "import_with_conflicts.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("origin", "COMPANY");
+
+      const req = new Request("http://localhost:3000/api/excel/validate", {
+        method: "POST",
+        body: formData,
+      });
+
+      const res = await validatePOST(req);
+      const data = await res.json();
+
+      assert.strictEqual(data.success, true);
+      assert.ok(data.summary, "Must return validation summary");
+      assert.strictEqual(data.summary.totalRows, 4, "Total 4 rows in test sheet");
+      assert.ok(data.summary.invalidRowCount >= 2, "Must classify conflicting rows as invalid");
+
+      // Verify DB conflict error
+      const dbConflictError = data.summary.allErrors.find(
+        (e: { code: string; rowNumber: number }) => e.code === "DUPLICATE_TRANSACTION_DATE" && e.rowNumber === 2
+      );
+      assert.ok(dbConflictError, "Must find DUPLICATE_TRANSACTION_DATE error for row 2");
+      assert.strictEqual(
+        dbConflictError.error,
+        "Duplicate transaction date: 10/08/2026. A transaction already exists for this date."
+      );
+
+      // Verify internal file duplicate error
+      const fileDuplicateError = data.summary.allErrors.find(
+        (e: { code: string; rowNumber: number }) => e.code === "DUPLICATE_DATE_IN_FILE" && e.rowNumber === 4
+      );
+      assert.ok(fileDuplicateError, "Must find DUPLICATE_DATE_IN_FILE error for row 4");
+      assert.ok(fileDuplicateError.error.includes("Duplicate transaction date: 15/08/2026. Another transaction in row 3"));
+
+      // Verify occupiedDbDates is provided in response
+      assert.ok(Array.isArray(data.occupiedDbDates), "occupiedDbDates must be an array");
+      assert.ok(data.occupiedDbDates.includes("2026-08-10"), "occupiedDbDates must include 2026-08-10");
+
+      console.log("   ✅ Conflicting rows successfully detected and classified as invalid with exact error messages during initial parsing.");
+    }
+
+    console.log("\n🎉 ALL 11 DUPLICATE DATE VALIDATION TESTS PASSED WITH 100% SUCCESS!");
   } finally {
     await teardown();
   }

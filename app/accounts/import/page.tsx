@@ -38,7 +38,7 @@ import {
   AlertCircle,
   ExternalLink,
 } from "lucide-react";
-import { formatINR, formatIndianDate, parseIndianDate } from "@/lib/utils";
+import { formatINR, formatIndianDate, parseIndianDate, getISTCalendarDate } from "@/lib/utils";
 import { IndianDateInput } from "@/components/ui/IndianDateInput";
 import { EditableImportRow, ExcelValidationErrorItem, ExcelRowValidationResult } from "@/lib/excel/types";
 import { validateSingleRow } from "@/lib/excel/excelValidator";
@@ -108,6 +108,7 @@ function ExcelImportContent() {
   const [rows, setRows] = useState<EditableImportRow[]>([]);
   const [originalRowCount, setOriginalRowCount] = useState(0);
   const [openingBalance, setOpeningBalance] = useState<number>(0);
+  const [occupiedDbDates, setOccupiedDbDates] = useState<string[]>([]);
 
   // In-table Editing State
   const [editingCell, setEditingCell] = useState<{ rowId: string; field: keyof EditableImportRow } | null>(null);
@@ -176,9 +177,11 @@ function ExcelImportContent() {
         const summary = data.summary;
         setOriginalRowCount(summary.totalRows);
         const isPre = importOrigin === "PRE_COMPANY";
+        const dbDates: string[] = Array.isArray(data.occupiedDbDates) ? data.occupiedDbDates : [];
+        setOccupiedDbDates(dbDates);
 
-        // Convert parsed rows into EditableImportRow array
-        const initialRows: EditableImportRow[] = summary.rows.map(
+        // Convert parsed rows into raw EditableImportRow array
+        const rawInitialRows: EditableImportRow[] = summary.rows.map(
           (r: ExcelRowValidationResult, idx: number) => {
             const raw = r.data;
             const parsedDate = parseIndianDate(raw.date as string | Date) || new Date();
@@ -186,30 +189,8 @@ function ExcelImportContent() {
             const debit = Number(raw.debit) || 0;
             const credit = Number(raw.credit) || 0;
             const paidBy = String(raw.paidBy || "").trim();
-            const bankOrCash = (raw.bankOrCash as any) || (isPre ? "Personal Bank" : "Bank");
-            const paymentSource = (raw.paymentSource as any) || (isPre ? "Personal Bank" : "Company Bank");
-
-            const validation = validateSingleRow(
-              {
-                date: dateStr,
-                description: String(raw.description || ""),
-                category: String(raw.category || ""),
-                debit,
-                credit,
-                bankOrCash,
-                paymentSource,
-                paidBy,
-                transactionOrigin: importOrigin,
-                gstAmount: Number(raw.gstAmount) || 0,
-                tdsTcsAmount: Number(raw.tdsTcsAmount) || 0,
-              },
-              {
-                origin: importOrigin,
-                rowNumber: r.rowNumber,
-                sheetName: r.sheetName,
-                rawValues: (raw as any).__rawValues || r.rawValues,
-              }
-            );
+            const bankOrCash = (raw.bankOrCash as "Bank" | "Cash" | "Personal Bank" | "Personal Cash" | "N/A") || (isPre ? "Personal Bank" : "Bank");
+            const paymentSource = (raw.paymentSource as "Company Bank" | "Company Cash" | "Personal Bank" | "Personal Cash" | "Other") || (isPre ? "Personal Bank" : "Company Bank");
 
             return {
               id: `row-${idx + 1}-${Date.now()}`,
@@ -237,11 +218,11 @@ function ExcelImportContent() {
               billAvailable: !!raw.billAvailable,
               isModified: false,
               isNew: false,
-              isValid: validation.isValid,
-              fieldErrors: validation.fieldErrors,
-              errorItems: validation.errorItems,
-              warnings: validation.warnings,
-              __rawValues: (raw as any).__rawValues || r.rawValues,
+              isValid: true,
+              fieldErrors: {},
+              errorItems: [],
+              warnings: [],
+              __rawValues: (raw as { __rawValues?: Record<string, unknown> }).__rawValues || r.rawValues,
             };
           }
         );
@@ -249,7 +230,8 @@ function ExcelImportContent() {
         const serverOpeningBal = typeof data.openingBalance === "number" ? data.openingBalance : 0;
         setOpeningBalance(serverOpeningBal);
 
-        const balancedRows = calculateRunningBalances(initialRows, serverOpeningBal);
+        const validatedRows = validateTableRows(rawInitialRows, dbDates);
+        const balancedRows = calculateRunningBalances(validatedRows, serverOpeningBal);
         setRows(balancedRows);
         setCurrentStep("PREVIEW");
         setCurrentPage(1);
@@ -271,38 +253,95 @@ function ExcelImportContent() {
     }
   };
 
-  // Revalidate a specific row after edit
-  const revalidateRow = (row: EditableImportRow): EditableImportRow => {
-    const validation = validateSingleRow(
-      {
-        date: row.date,
-        description: row.description,
-        category: row.category,
-        debit: row.debit,
-        credit: row.credit,
-        bankOrCash: row.bankOrCash,
-        paymentSource: row.paymentSource,
-        paidBy: row.paidBy,
-        transactionOrigin: row.transactionOrigin || importOrigin,
-        gstAmount: row.gstAmount,
-        tdsTcsAmount: row.tdsTcsAmount,
-      },
-      {
-        origin: importOrigin,
-        rowNumber: row.excelRowNumber || row.slNo,
-        sheetName: row.sheetName || "Sheet1",
-        rawValues: (row as any).__rawValues,
-      }
-    );
+  // Validate entire table of rows, applying single-row validation plus cross-row and DB duplicate-date checks
+  const validateTableRows = (
+    rowsToValidate: EditableImportRow[],
+    dbDates: string[]
+  ): EditableImportRow[] => {
+    const seenDates = new Map<string, number>(); // dateStr -> excelRowNumber
+    const dbDateSet = new Set(dbDates);
 
-    return {
-      ...row,
-      isValid: validation.isValid,
-      fieldErrors: validation.fieldErrors,
-      errorItems: validation.errorItems,
-      warnings: validation.warnings,
-      rawDate: validation.parsedDate || row.rawDate,
-    };
+    return rowsToValidate.map((row) => {
+      // 1. Single row field validation (amounts, categories, descriptions, etc.)
+      const validation = validateSingleRow(
+        {
+          date: row.date,
+          description: row.description,
+          category: row.category,
+          debit: row.debit,
+          credit: row.credit,
+          bankOrCash: row.bankOrCash,
+          paymentSource: row.paymentSource,
+          paidBy: row.paidBy,
+          transactionOrigin: row.transactionOrigin || importOrigin,
+          gstAmount: row.gstAmount,
+          tdsTcsAmount: row.tdsTcsAmount,
+        },
+        {
+          origin: importOrigin,
+          rowNumber: row.excelRowNumber || row.slNo,
+          sheetName: row.sheetName || "Sheet1",
+          rawValues: (row as { __rawValues?: Record<string, unknown> }).__rawValues,
+        }
+      );
+
+      const errorItems: ExcelValidationErrorItem[] = [...validation.errorItems];
+      const fieldErrors: Record<string, string> = { ...validation.fieldErrors };
+      let isValid = validation.isValid;
+
+      // 2. Duplicate date check against existing transactions in MAIN account in DB
+      const cal = getISTCalendarDate(row.date);
+      if (cal) {
+        if (dbDateSet.has(cal.dateStr)) {
+          const errMsg = `Duplicate transaction date: ${cal.displayDate}. A transaction already exists for this date.`;
+          const howToFix = `A transaction is already recorded for ${cal.displayDate} in the MAIN account. Duplicate transaction dates are not permitted.`;
+          isValid = false;
+          fieldErrors["date"] = errMsg;
+          errorItems.push({
+            sheetName: row.sheetName || "Sheet1",
+            rowNumber: row.excelRowNumber || row.slNo,
+            field: "date",
+            columnHeader: getColumnHeaderForField("date"),
+            currentValue: cal.displayDate,
+            code: "DUPLICATE_TRANSACTION_DATE",
+            error: errMsg,
+            howToFix,
+            message: errMsg,
+            suggestion: howToFix,
+          });
+        } else if (seenDates.has(cal.dateStr)) {
+          // 3. Duplicate date check against other rows in the same Excel file/table
+          const prevRow = seenDates.get(cal.dateStr)!;
+          const errMsg = `Duplicate transaction date: ${cal.displayDate}. Another transaction in row ${prevRow} has the same date.`;
+          const howToFix = `Each transaction in the MAIN account must have a unique calendar date. Row ${prevRow} also uses ${cal.displayDate}. Change the date or combine entries.`;
+          isValid = false;
+          fieldErrors["date"] = errMsg;
+          errorItems.push({
+            sheetName: row.sheetName || "Sheet1",
+            rowNumber: row.excelRowNumber || row.slNo,
+            field: "date",
+            columnHeader: getColumnHeaderForField("date"),
+            currentValue: cal.displayDate,
+            code: "DUPLICATE_DATE_IN_FILE",
+            error: errMsg,
+            howToFix,
+            message: errMsg,
+            suggestion: howToFix,
+          });
+        } else {
+          seenDates.set(cal.dateStr, row.excelRowNumber || row.slNo);
+        }
+      }
+
+      return {
+        ...row,
+        isValid: isValid && errorItems.length === 0,
+        fieldErrors,
+        errorItems,
+        warnings: validation.warnings,
+        rawDate: validation.parsedDate || row.rawDate,
+      };
+    });
   };
 
   // Cell Edit Handlers
@@ -326,16 +365,15 @@ function ExcelImportContent() {
           val = Math.max(0, Number(val) || 0);
         }
 
-        const modifiedRow = {
+        return {
           ...r,
           [field]: val,
           isModified: true,
         };
-
-        return revalidateRow(modifiedRow);
       });
 
-      return calculateRunningBalances(updated, openingBalance);
+      const validated = validateTableRows(updated, occupiedDbDates);
+      return calculateRunningBalances(validated, openingBalance);
     });
 
     setEditingCell(null);
@@ -375,12 +413,14 @@ function ExcelImportContent() {
       isNew: true,
       isValid: true,
       fieldErrors: {},
+      errorItems: [],
       warnings: [],
     };
 
-    const revalidated = revalidateRow(newRow);
-    const updated = calculateRunningBalances([revalidated, ...rows], openingBalance);
-    setRows(updated);
+    const updated = [newRow, ...rows];
+    const validated = validateTableRows(updated, occupiedDbDates);
+    const balanced = calculateRunningBalances(validated, openingBalance);
+    setRows(balanced);
     setCurrentPage(1);
     toast.success("New transaction row added at the top.");
   };
@@ -399,8 +439,9 @@ function ExcelImportContent() {
     };
 
     const newRows = [...rows];
-    newRows.splice(targetIdx + 1, 0, revalidateRow(duplicated));
-    const balanced = calculateRunningBalances(newRows, openingBalance);
+    newRows.splice(targetIdx + 1, 0, duplicated);
+    const validated = validateTableRows(newRows, occupiedDbDates);
+    const balanced = calculateRunningBalances(validated, openingBalance);
     setRows(balanced);
     toast.success(`Duplicated row #${target.slNo}.`);
   };
@@ -415,7 +456,8 @@ function ExcelImportContent() {
     }
 
     const remaining = rows.filter((r) => r.id !== rowId);
-    const balanced = calculateRunningBalances(remaining, openingBalance);
+    const validated = validateTableRows(remaining, occupiedDbDates);
+    const balanced = calculateRunningBalances(validated, openingBalance);
     setRows(balanced);
     toast.success(`Removed row #${target.slNo}. Balances recalculated.`);
   };
