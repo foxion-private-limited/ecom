@@ -56,6 +56,8 @@ export const productSchema = z.object({
   category: z.string().min(1, "Category is required"),
   brand: z.string().trim().default("Foxion"),
   imageUrl: z.string().optional().default(""),
+  imageId: z.string().optional(),
+  imageType: z.enum(["UPLOAD", "URL"]).optional().default("URL"),
   purchasePrice: z.coerce.number().min(0, "Purchase price cannot be negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price cannot be negative"),
   gstPercentage: z.coerce.number().min(0, "GST % cannot be negative").default(18),

@@ -8,10 +8,23 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
 
     const category = searchParams.get("category") || undefined;
-    const stockStatus = (searchParams.get("stockStatus") as any) || "ALL";
+    const stockStatus =
+      (searchParams.get("stockStatus") as
+        | "ALL"
+        | "GOOD"
+        | "LOW"
+        | "OUT"
+        | null) || "ALL";
     const search = searchParams.get("search") || undefined;
-    const sortBy = (searchParams.get("sortBy") as any) || "createdAt";
-    const sortOrder = (searchParams.get("sortOrder") as any) || "desc";
+    const sortBy =
+      (searchParams.get("sortBy") as
+        | "name"
+        | "price"
+        | "stock"
+        | "createdAt"
+        | null) || "createdAt";
+    const sortOrder =
+      (searchParams.get("sortOrder") as "asc" | "desc" | null) || "desc";
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
 
@@ -26,12 +39,10 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json(result);
-  } catch (error: any) {
-    console.error("GET products error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to fetch products" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch products";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -48,14 +59,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const product = await createProduct(parsed.data as any, user?.email || "System");
+    const product = await createProduct(parsed.data, user?.email || "System");
 
-    return NextResponse.json({ success: true, product });
-  } catch (error: any) {
-    console.error("POST product error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to create product" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, product }, { status: 201 });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create product";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

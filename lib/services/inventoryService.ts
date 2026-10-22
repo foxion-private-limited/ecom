@@ -9,6 +9,7 @@ import { Category } from "@/lib/models/Category";
 import { ProductCategory } from "@/lib/models/ProductCategory";
 import { Order } from "@/lib/models/Order";
 import { Purchase } from "@/lib/models/Purchase";
+import { cleanupImageIfUnreferenced } from "@/lib/services/imageStorageService";
 import mongoose from "mongoose";
 
 export interface ProductFilterOptions {
@@ -44,7 +45,7 @@ export async function getProducts(options: ProductFilterOptions = {}) {
     limit = 50,
   } = options;
 
-  const query: any = {};
+  const query: Record<string, unknown> = {};
   if (isActive !== undefined) {
     query.isActive = isActive;
   }
@@ -71,7 +72,7 @@ export async function getProducts(options: ProductFilterOptions = {}) {
     ];
   }
 
-  const sortMap: Record<string, any> = {
+  const sortMap: Record<string, Record<string, 1 | -1>> = {
     name: { name: sortOrder === "asc" ? 1 : -1 },
     price: { sellingPrice: sortOrder === "asc" ? 1 : -1 },
     stock: { currentStock: sortOrder === "asc" ? 1 : -1 },
@@ -121,8 +122,13 @@ export async function getProductById(id: string) {
   return Product.findById(id).populate("category", "name slug").lean();
 }
 
+export type ProductInputData = Omit<Partial<IProduct>, "category" | "imageId"> & {
+  category?: string | mongoose.Types.ObjectId;
+  imageId?: string | mongoose.Types.ObjectId;
+};
+
 export async function createProduct(
-  data: Partial<IProduct>,
+  data: ProductInputData & { category: string | mongoose.Types.ObjectId },
   userEmail: string = "System"
 ): Promise<IProduct> {
   await connectDB();
@@ -152,13 +158,71 @@ export async function createProduct(
 
 export async function updateProduct(
   id: string,
-  data: Partial<IProduct>
+  data: ProductInputData
 ): Promise<IProduct | null> {
   await connectDB();
+  const updateData: Record<string, unknown> = { ...data };
   if (data.sku) {
-    data.sku = data.sku.toUpperCase().trim();
+    updateData.sku = data.sku.toUpperCase().trim();
   }
-  return Product.findByIdAndUpdate(id, data, { new: true });
+
+  const existing = await Product.findById(id);
+  if (!existing) return null;
+
+  const oldImageId =
+    existing.imageId?.toString() ||
+    (existing.imageUrl?.startsWith("/api/products/images/")
+      ? existing.imageUrl.replace("/api/products/images/", "").trim()
+      : null);
+
+  // If new image is an external URL or removed, unset stored GridFS imageId
+  if (
+    data.imageType === "URL" ||
+    (typeof data.imageUrl === "string" && !data.imageUrl.startsWith("/api/products/images/"))
+  ) {
+    delete updateData.imageId;
+    updateData.$unset = { imageId: 1 };
+  } else if (data.imageId && typeof data.imageId === "string" && mongoose.Types.ObjectId.isValid(data.imageId)) {
+    updateData.imageId = new mongoose.Types.ObjectId(data.imageId);
+  }
+
+  const updated = await Product.findByIdAndUpdate(id, updateData, {
+    returnDocument: "after",
+  });
+
+  // Clean up old uploaded image only after successful update, and only if not referenced elsewhere
+  if (updated && oldImageId) {
+    const newImageId =
+      updated.imageId?.toString() ||
+      (updated.imageUrl?.startsWith("/api/products/images/")
+        ? updated.imageUrl.replace("/api/products/images/", "").trim()
+        : null);
+
+    if (newImageId !== oldImageId) {
+      await cleanupImageIfUnreferenced(oldImageId, id);
+    }
+  }
+
+  return updated;
+}
+
+export async function deleteProduct(id: string): Promise<boolean> {
+  await connectDB();
+  const product = await Product.findById(id);
+  if (!product) return false;
+
+  const imageId =
+    product.imageId?.toString() ||
+    (product.imageUrl?.startsWith("/api/products/images/")
+      ? product.imageUrl.replace("/api/products/images/", "").trim()
+      : null);
+
+  if (imageId) {
+    await cleanupImageIfUnreferenced(imageId, id);
+  }
+
+  await Product.findByIdAndDelete(id);
+  return true;
 }
 
 export async function archiveProduct(id: string): Promise<boolean> {
@@ -220,7 +284,7 @@ export async function getStockMovements(
   limit: number = 100
 ) {
   await connectDB();
-  const query: any = {};
+  const query: Record<string, unknown> = {};
   if (productId) {
     query.productId = productId;
   }

@@ -6,6 +6,8 @@ export interface IProduct extends Document {
   category: mongoose.Types.ObjectId;
   brand: string;
   imageUrl?: string;
+  imageId?: mongoose.Types.ObjectId;
+  imageType?: "UPLOAD" | "URL";
   purchasePrice: number;
   sellingPrice: number;
   gstPercentage: number;
@@ -36,6 +38,8 @@ const ProductSchema = new Schema<IProduct>(
     },
     brand: { type: String, default: "Foxion", trim: true },
     imageUrl: { type: String, trim: true },
+    imageId: { type: Schema.Types.ObjectId, index: true },
+    imageType: { type: String, enum: ["UPLOAD", "URL"], default: "URL" },
     purchasePrice: { type: Number, required: true, min: 0, default: 0 },
     sellingPrice: { type: Number, required: true, min: 0, default: 0 },
     gstPercentage: { type: Number, required: true, min: 0, default: 18 },
