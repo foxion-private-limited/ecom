@@ -63,10 +63,14 @@ export async function createSession(user: IUser) {
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  return decryptSession(token);
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return null;
+    return decryptSession(token);
+  } catch {
+    return null;
+  }
 }
 
 export async function destroySession() {

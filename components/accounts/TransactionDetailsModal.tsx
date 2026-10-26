@@ -16,6 +16,7 @@ import {
   Hash,
   Layers,
   ShieldCheck,
+  ExternalLink,
 } from "lucide-react";
 import { formatINR, formatIndianDate } from "@/lib/utils";
 
@@ -231,13 +232,112 @@ export function TransactionDetailsModal({
 
             <div>
               <span className="text-[11px] text-slate-400 block mb-0.5">Bill Document</span>
-              <div className="flex items-center gap-1 text-slate-300">
+              <div className="flex items-center gap-1.5 text-slate-300">
                 <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                <span>{transaction.billAvailable ? "Attached / Available" : "Not Provided"}</span>
+                {transaction.attachment?.url ? (
+                  <a
+                    href={transaction.attachment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 font-medium hover:underline inline-flex items-center gap-1"
+                  >
+                    Attached (View)
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <span>{transaction.billAvailable ? "Marked as Available" : "Not Provided"}</span>
+                )}
               </div>
             </div>
           </div>
         </div>
+
+        {/* Supporting Bill Document Attachment (Debit Transactions with a bill) */}
+        {isDebit && transaction.attachment?.url && (
+          <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-blue-400" />
+                Supporting Bill / Receipt Attachment
+              </h4>
+              <a
+                href={transaction.attachment.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 hover:underline"
+              >
+                Open in new tab
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-slate-900/80 border border-slate-800">
+              <div className="flex items-center gap-3 min-w-0">
+                {transaction.attachment.mimeType === "application/pdf" ||
+                transaction.attachment.originalName?.toLowerCase().endsWith(".pdf") ? (
+                  <div className="w-12 h-12 rounded-lg bg-rose-950/60 border border-rose-800/80 flex flex-col items-center justify-center shrink-0 text-rose-400">
+                    <FileText className="w-6 h-6" />
+                    <span className="text-[9px] font-bold uppercase">PDF</span>
+                  </div>
+                ) : (
+                  <a
+                    href={transaction.attachment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block shrink-0 group relative cursor-pointer"
+                    title="Click to view full image"
+                  >
+                    <img
+                      src={transaction.attachment.url}
+                      alt={transaction.attachment.originalName || "Bill attachment"}
+                      className="w-12 h-12 rounded-lg object-cover border border-slate-700 group-hover:opacity-80 transition-opacity"
+                    />
+                  </a>
+                )}
+
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-white truncate max-w-xs sm:max-w-md">
+                    {transaction.attachment.originalName || "Bill Document"}
+                  </p>
+                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+                    <span>
+                      {transaction.attachment.size
+                        ? `${(transaction.attachment.size / 1024).toFixed(1)} KB`
+                        : "Attachment"}
+                    </span>
+                    <span>&bull;</span>
+                    <span className="uppercase text-[10px] tracking-wide">
+                      {transaction.attachment.mimeType === "application/pdf"
+                        ? "PDF Document"
+                        : "Image"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <a
+                  href={transaction.attachment.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+                >
+                  {transaction.attachment.mimeType === "application/pdf" ? (
+                    <>
+                      <FileText className="w-3.5 h-3.5" />
+                      View / Open PDF
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      View Image
+                    </>
+                  )}
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Section 4: System Audit Trail */}
         <div className="p-3 rounded-lg bg-slate-950/40 border border-slate-800/60 text-[11px] text-slate-400 space-y-1.5">

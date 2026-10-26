@@ -25,11 +25,34 @@ export const transactionSchema = z
     remarks: z.string().optional().default(""),
     billAvailable: z.boolean().default(false),
     billId: z.string().optional(),
+    attachment: z
+      .object({
+        fileId: z.string().optional(),
+        url: z.string(),
+        originalName: z.string(),
+        mimeType: z.string(),
+        size: z.number(),
+      })
+      .optional()
+      .nullable(),
   })
   .refine((data) => data.debit > 0 || data.credit > 0, {
     message: "Either Debit or Credit must be greater than 0",
     path: ["debit"],
   })
+  .refine(
+    (data) => {
+      // Attachment is only permitted for Debit transactions
+      if (data.credit > 0 && data.attachment) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Bill attachments are only permitted for Debit transactions",
+      path: ["attachment"],
+    }
+  )
   .refine(
     (data) => {
       const isPersonal =

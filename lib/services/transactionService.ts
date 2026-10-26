@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connection";
 import { Transaction, ITransaction, AccountType, TransactionOrigin } from "@/lib/models/Transaction";
 import { Category } from "@/lib/models/Category";
+import { Bill } from "@/lib/models/Bill";
+import { cleanupBillIfUnreferenced } from "@/lib/services/billStorageService";
 import { parseIndianDate, toInputDateString, getISTCalendarDate } from "@/lib/utils";
 
 export interface TransactionFilterOptions {
@@ -522,9 +524,26 @@ export async function createTransaction(
     else paymentSource = "Company Bank";
   }
 
+  // Validate that attachments are strictly permitted for Debit transactions only
+  if (data.credit && data.credit > 0 && (data.attachment || data.billId)) {
+    throw new Error("Bill attachments are only permitted for Debit transactions.");
+  }
+
+  const billAvailable = !!data.attachment || !!data.billAvailable;
+  let formattedAttachment = data.attachment;
+  if (formattedAttachment && typeof formattedAttachment.fileId === "string") {
+    formattedAttachment = {
+      ...formattedAttachment,
+      fileId: new mongoose.Types.ObjectId(formattedAttachment.fileId),
+    };
+  }
+
   try {
     const tx = await Transaction.create({
       ...data,
+      attachment: formattedAttachment,
+      billAvailable,
+      billId: formattedAttachment?.fileId || data.billId,
       accountType: "MAIN",
       transactionOrigin,
       bankOrCash,
@@ -533,6 +552,23 @@ export async function createTransaction(
       normalizedDate: cal?.dateStr,
       createdBy: userEmail,
     });
+
+    if (formattedAttachment && formattedAttachment.fileId) {
+      try {
+        await Bill.create({
+          filename: formattedAttachment.originalName,
+          originalName: formattedAttachment.originalName,
+          mimeType: formattedAttachment.mimeType,
+          size: formattedAttachment.size,
+          url: formattedAttachment.url,
+          uploadedBy: userEmail,
+          relatedType: "TRANSACTION",
+          relatedId: tx._id,
+        });
+      } catch (billErr) {
+        console.warn("[Transaction] Bill document synchronization notice:", billErr);
+      }
+    }
 
     return tx;
   } catch (err: unknown) {
@@ -549,7 +585,12 @@ export async function updateTransaction(
 ): Promise<ITransaction | null> {
   await connectDB();
 
-  const updateData: Partial<ITransaction> = { ...data, accountType: "MAIN" };
+  // Validate that attachments are strictly permitted for Debit transactions only
+  if (data.credit && data.credit > 0 && data.attachment) {
+    throw new Error("Bill attachments are only permitted for Debit transactions.");
+  }
+
+  const updateData: Record<string, unknown> = { ...data, accountType: "MAIN" };
 
   if (data.date) {
     const conflict = await checkTransactionDateConflict({
@@ -568,6 +609,43 @@ export async function updateTransaction(
     }
   }
 
+  const oldTx = await Transaction.findById(id);
+
+  // If switching to Credit, remove any existing attachment from the transaction
+  if (data.credit && data.credit > 0 && oldTx?.attachment?.fileId) {
+    await cleanupBillIfUnreferenced(oldTx.attachment.fileId, id);
+    delete updateData.attachment;
+    updateData.$unset = { ...(updateData.$unset as Record<string, unknown> || {}), attachment: 1, billId: 1 };
+    updateData.billAvailable = false;
+  } else if (data.attachment === null) {
+    // Explicit removal of attachment
+    if (oldTx?.attachment?.fileId) {
+      await cleanupBillIfUnreferenced(oldTx.attachment.fileId, id);
+    }
+    delete updateData.attachment;
+    updateData.$unset = { ...(updateData.$unset as Record<string, unknown> || {}), attachment: 1, billId: 1 };
+    updateData.billAvailable = false;
+  } else if (data.attachment) {
+    let formattedAttachment = data.attachment;
+    if (typeof formattedAttachment.fileId === "string") {
+      formattedAttachment = {
+        ...formattedAttachment,
+        fileId: new mongoose.Types.ObjectId(formattedAttachment.fileId),
+      };
+    }
+    updateData.attachment = formattedAttachment;
+    updateData.billAvailable = true;
+    updateData.billId = formattedAttachment.fileId;
+
+    // If replacement, clean up old file if different
+    if (
+      oldTx?.attachment?.fileId &&
+      String(oldTx.attachment.fileId) !== String(formattedAttachment.fileId)
+    ) {
+      await cleanupBillIfUnreferenced(oldTx.attachment.fileId, id);
+    }
+  }
+
   try {
     return await Transaction.findByIdAndUpdate(id, updateData, { new: true });
   } catch (err: unknown) {
@@ -581,6 +659,25 @@ export async function updateTransaction(
 export async function archiveTransaction(id: string): Promise<boolean> {
   await connectDB();
   const res = await Transaction.findByIdAndUpdate(id, { isArchived: true });
+  return !!res;
+}
+
+export async function deleteTransactionPermanently(id: string): Promise<boolean> {
+  await connectDB();
+  const tx = await Transaction.findById(id);
+  if (!tx) return false;
+
+  const fileId = tx.attachment?.fileId || tx.billId;
+  const res = await Transaction.findByIdAndDelete(id);
+
+  if (fileId) {
+    try {
+      await cleanupBillIfUnreferenced(fileId, id);
+    } catch (cleanupErr) {
+      console.warn("[Transaction] Attachment cleanup notice:", cleanupErr);
+    }
+  }
+
   return !!res;
 }
 

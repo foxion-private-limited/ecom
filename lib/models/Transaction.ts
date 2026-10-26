@@ -9,6 +9,14 @@ export type PaymentSource =
   | "Personal Cash"
   | "Other";
 
+export interface ITransactionAttachment {
+  fileId?: mongoose.Types.ObjectId;
+  url: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface ITransaction extends Document {
   accountType: AccountType;
   transactionOrigin: TransactionOrigin;
@@ -30,6 +38,7 @@ export interface ITransaction extends Document {
   remarks?: string;
   billAvailable: boolean;
   billId?: mongoose.Types.ObjectId;
+  attachment?: ITransactionAttachment | null;
   source: "MANUAL" | "PURCHASE" | "ORDER" | "EXCEL_IMPORT" | "ADJUSTMENT";
   sourceId?: mongoose.Types.ObjectId;
   importBatchId?: string;
@@ -92,6 +101,16 @@ const TransactionSchema = new Schema<ITransaction>(
     remarks: { type: String, trim: true },
     billAvailable: { type: Boolean, default: false },
     billId: { type: Schema.Types.ObjectId, ref: "Bill" },
+    attachment: {
+      type: {
+        fileId: { type: Schema.Types.ObjectId },
+        url: { type: String, trim: true },
+        originalName: { type: String, trim: true },
+        mimeType: { type: String, trim: true },
+        size: { type: Number },
+      },
+      default: undefined,
+    },
     source: {
       type: String,
       enum: ["MANUAL", "PURCHASE", "ORDER", "EXCEL_IMPORT", "ADJUSTMENT"],

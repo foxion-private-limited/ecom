@@ -2,7 +2,15 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { Modal, Button, Input, Select } from "@/lib/ui";
-import { AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  Paperclip,
+  FileText,
+  X,
+  Upload,
+  ExternalLink,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 interface TransactionModalProps {
@@ -31,6 +39,14 @@ export interface TransactionFormInitialData {
   gstAmount?: number;
   tdsTcsAmount?: number;
   remarks?: string;
+  billAvailable?: boolean;
+  attachment?: {
+    fileId?: string;
+    url: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -95,6 +111,19 @@ export function TransactionFormModal({
   const [remarks, setRemarks] = useState("");
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
+
+  // Supporting Bill / Receipt Attachment state (strictly for Debit)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [existingAttachment, setExistingAttachment] = useState<{
+    fileId?: string;
+    url: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  } | null>(null);
+  const [isAttachmentRemoved, setIsAttachmentRemoved] = useState(false);
 
   // Duplicate date validation state
   const [dateError, setDateError] = useState<string | null>(null);
@@ -229,6 +258,20 @@ export function TransactionFormModal({
       setTdsTcsAmount(snap.tdsTcsAmount);
       setRemarks(snap.remarks);
 
+      // Reset attachment state
+      if (initialData?.attachment) {
+        setExistingAttachment(initialData.attachment);
+      } else {
+        setExistingAttachment(null);
+      }
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setFileError(null);
+      setIsAttachmentRemoved(false);
+
       // Fetch dynamic categories
       fetch("/api/categories")
         .then((res) => res.json())
@@ -242,6 +285,67 @@ export function TransactionFormModal({
       setShowDiscardConfirm(false);
     }
   }, [isOpen, initialData, defaultOrigin]);
+
+  // Clean up object URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validMimes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    const validExts = [".jpg", ".jpeg", ".png", ".webp", ".pdf"];
+    const ext = "." + file.name.split(".").pop()?.toLowerCase();
+
+    if (!validMimes.includes(file.type.toLowerCase()) && !validExts.includes(ext)) {
+      setFileError("Invalid format. Only JPG, JPEG, PNG, WEBP, and PDF files are accepted.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setFileError(
+        `File size exceeds 5 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a smaller file.`
+      );
+      return;
+    }
+
+    setFileError(null);
+    setSelectedFile(file);
+    setIsAttachmentRemoved(false);
+
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    if (file.type.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp"].includes(ext)) {
+      setPreviewUrl(URL.createObjectURL(file));
+    } else {
+      setPreviewUrl(null);
+    }
+  };
+
+  const handleRemoveSelectedFile = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setFileError(null);
+  };
+
+  const handleRemoveExistingAttachment = () => {
+    setIsAttachmentRemoved(true);
+  };
+
+  const handleRestoreExistingAttachment = () => {
+    setIsAttachmentRemoved(false);
+  };
 
   // Compute accurate dirty state
   const isDirty = useMemo(() => {
@@ -297,7 +401,9 @@ export function TransactionFormModal({
       invoiceOrderId.trim() !== initialSnapshot.invoiceOrderId.trim() ||
       isGstDirty() ||
       isTdsDirty() ||
-      remarks.trim() !== initialSnapshot.remarks.trim()
+      remarks.trim() !== initialSnapshot.remarks.trim() ||
+      Boolean(selectedFile) ||
+      isAttachmentRemoved
     );
   }, [
     initialSnapshot,
@@ -316,6 +422,8 @@ export function TransactionFormModal({
     gstAmount,
     tdsTcsAmount,
     remarks,
+    selectedFile,
+    isAttachmentRemoved,
   ]);
 
   // Handle close attempts safely
@@ -331,6 +439,18 @@ export function TransactionFormModal({
     setShowDiscardConfirm(false);
     setDateError(null);
     setIsCheckingDate(false);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setFileError(null);
+    setIsAttachmentRemoved(false);
+    if (initialData?.attachment) {
+      setExistingAttachment(initialData.attachment);
+    } else {
+      setExistingAttachment(null);
+    }
     if (initialSnapshot) {
       setOrigin(initialSnapshot.origin);
       setEntryType(initialSnapshot.entryType);
@@ -406,14 +526,19 @@ export function TransactionFormModal({
 
     setLoading(true);
 
-    const debit = entryType === "DEBIT" ? numericAmount : 0;
-    const credit = entryType === "CREDIT" ? numericAmount : 0;
+    const isDebit = entryType === "DEBIT";
+    const debit = isDebit ? numericAmount : 0;
+    const credit = !isDebit ? numericAmount : 0;
 
     let paymentSource = "Company Bank";
     if (bankOrCash === "Personal Bank") paymentSource = "Personal Bank";
     else if (bankOrCash === "Personal Cash") paymentSource = "Personal Cash";
     else if (bankOrCash === "Cash") paymentSource = "Company Cash";
     else if (bankOrCash === "N/A") paymentSource = "Other";
+
+    const hasAttachment =
+      isDebit &&
+      (Boolean(selectedFile) || (Boolean(existingAttachment) && !isAttachmentRemoved));
 
     const payload = {
       accountType,
@@ -433,23 +558,50 @@ export function TransactionFormModal({
       gstAmount: parseFloat(gstAmount) || 0,
       tdsTcsAmount: parseFloat(tdsTcsAmount) || 0,
       remarks: remarks.trim(),
-      billAvailable: false,
+      billAvailable: hasAttachment,
     };
 
     try {
       const url = initialData ? `/api/transactions/${initialData._id}` : "/api/transactions";
       const method = initialData ? "PATCH" : "POST";
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      let res: Response;
+
+      if (isDebit && selectedFile) {
+        const formData = new FormData();
+        formData.append("payload", JSON.stringify(payload));
+        formData.append("billFile", selectedFile);
+        if (isAttachmentRemoved) {
+          formData.append("removeAttachment", "true");
+        }
+        res = await fetch(url, {
+          method,
+          body: formData,
+        });
+      } else {
+        const finalPayload = {
+          ...payload,
+          attachment: isAttachmentRemoved ? null : undefined,
+        };
+        res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(finalPayload),
+        });
+      }
 
       const data = await res.json();
       if (!res.ok || (data.error && !data.success)) {
         throw new Error(data.error || "Failed to save transaction");
       }
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setFileError(null);
+      setIsAttachmentRemoved(false);
 
       toast.success(
         initialData
@@ -522,7 +674,15 @@ export function TransactionFormModal({
             </button>
             <button
               type="button"
-              onClick={() => setEntryType("CREDIT")}
+              onClick={() => {
+                setEntryType("CREDIT");
+                if (previewUrl) {
+                  URL.revokeObjectURL(previewUrl);
+                }
+                setSelectedFile(null);
+                setPreviewUrl(null);
+                setFileError(null);
+              }}
               className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
                 entryType === "CREDIT"
                   ? "bg-emerald-600 border-emerald-500 text-white"
@@ -703,6 +863,154 @@ export function TransactionFormModal({
             )}
           </div>
         </div>
+
+        {/* Supporting Bill / Receipt Upload - Display ONLY for Debit transactions */}
+        {entryType === "DEBIT" && (
+          <div className="space-y-2 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-blue-400" />
+                Bill / Receipt (Optional)
+              </label>
+              <span className="text-[11px] text-slate-500">
+                JPG, PNG, WEBP, PDF up to 5 MB
+              </span>
+            </div>
+
+            {/* Case 1: A new file has been selected */}
+            {selectedFile ? (
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/90 border border-blue-500/40">
+                <div className="flex items-center gap-3 min-w-0">
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt="Bill preview"
+                      className="w-10 h-10 object-cover rounded-md border border-slate-700 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-md bg-rose-950/60 border border-rose-800/80 flex flex-col items-center justify-center shrink-0 text-rose-400">
+                      <FileText className="w-5 h-5" />
+                      <span className="text-[8px] font-bold uppercase tracking-tight">PDF</span>
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white truncate max-w-xs sm:max-w-md">
+                      {selectedFile.name}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {(selectedFile.size / 1024).toFixed(1)} KB &bull;{" "}
+                      {selectedFile.type || "Document"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveSelectedFile}
+                  className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                  title="Remove selected file"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : existingAttachment && !isAttachmentRemoved ? (
+              /* Case 2: Editing a transaction with an existing attachment */
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/90 border border-slate-700">
+                <div className="flex items-center gap-3 min-w-0">
+                  {existingAttachment.mimeType === "application/pdf" ||
+                  existingAttachment.originalName.endsWith(".pdf") ? (
+                    <div className="w-10 h-10 rounded-md bg-rose-950/60 border border-rose-800/80 flex flex-col items-center justify-center shrink-0 text-rose-400">
+                      <FileText className="w-5 h-5" />
+                      <span className="text-[8px] font-bold uppercase tracking-tight">PDF</span>
+                    </div>
+                  ) : (
+                    <img
+                      src={existingAttachment.url}
+                      alt="Current attachment"
+                      className="w-10 h-10 object-cover rounded-md border border-slate-700 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-medium text-white truncate max-w-xs">
+                        {existingAttachment.originalName}
+                      </p>
+                      <a
+                        href={existingAttachment.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 inline-flex items-center"
+                        title="Open attachment in new tab"
+                      >
+                        <ExternalLink className="w-3 h-3 ml-0.5" />
+                      </a>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {existingAttachment.size
+                        ? `${(existingAttachment.size / 1024).toFixed(1)} KB`
+                        : "Current Attachment"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer transition-colors border border-slate-700">
+                    Replace
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRemoveExistingAttachment}
+                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                    title="Remove attachment"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : isAttachmentRemoved ? (
+              /* Case 3: User marked existing attachment for removal */
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                <span className="text-xs">
+                  Attachment will be removed upon saving.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRestoreExistingAttachment}
+                  className="text-xs font-medium text-amber-200 hover:underline cursor-pointer"
+                >
+                  Undo
+                </button>
+              </div>
+            ) : (
+              /* Case 4: No file selected yet -> Show file picker button / drop target */
+              <div>
+                <label className="flex items-center justify-center gap-2 px-3 py-3 rounded-lg border border-dashed border-slate-700 hover:border-slate-600 bg-slate-900/50 hover:bg-slate-900 text-slate-400 hover:text-slate-300 cursor-pointer transition-colors">
+                  <Upload className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-medium">
+                    Click to upload bill / receipt (JPG, PNG, WEBP, or PDF)
+                  </span>
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                </label>
+              </div>
+            )}
+
+            {fileError && (
+              <p className="text-xs text-rose-400 flex items-center gap-1 mt-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                {fileError}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Remarks */}
         <Input

@@ -500,8 +500,21 @@ export function AccountsLedgerView({
                       </td>
                     )}
                     <td className="py-3 px-3 text-center whitespace-nowrap">
-                      {tx.billAvailable ? (
-                        <span className="inline-flex items-center text-emerald-400 text-xs">
+                      {tx.attachment?.url ? (
+                        <a
+                          href={tx.attachment.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center text-emerald-400 hover:text-emerald-300 text-xs hover:scale-110 transition-transform"
+                          title={`View bill attachment: ${tx.attachment.originalName || "Bill"}`}
+                        >
+                          <Paperclip className="w-3.5 h-3.5" />
+                        </a>
+                      ) : tx.billAvailable ? (
+                        <span
+                          className="inline-flex items-center text-emerald-400 text-xs"
+                          title="Bill marked as available"
+                        >
                           <Paperclip className="w-3.5 h-3.5" />
                         </span>
                       ) : (

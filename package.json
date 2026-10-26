@@ -11,7 +11,8 @@
     "clean": "tsx --env-file=.env.local scripts/clear-dummy-data.ts",
     "test:invoices": "tsx scripts/test-invoice-system.ts",
     "test:excel-balance": "tsx scripts/test-excel-balance.ts",
-    "test:duplicate-date": "tsx scripts/test-duplicate-date-validation.ts"
+    "test:duplicate-date": "tsx scripts/test-duplicate-date-validation.ts",
+    "test:bill-attachment": "tsx scripts/test-bill-attachment.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
