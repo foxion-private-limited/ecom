@@ -357,7 +357,6 @@ export function validateExcelRows(
   let warningCount = 0;
   const isPreCompany = options?.origin === "PRE_COMPANY";
   let firstSheetName = "Sheet1";
-  const seenDates = new Map<string, number>();
 
   for (let idx = 0; idx < rawRows.length; idx++) {
     const raw = rawRows[idx];
@@ -477,34 +476,7 @@ export function validateExcelRows(
       __rawValues: raw.__rawValues,
     };
 
-    // Check for duplicate transaction dates within the same Excel file
-    if (validation.parsedDate) {
-      const cal = getISTCalendarDate(validation.parsedDate);
-      if (cal) {
-        if (seenDates.has(cal.dateStr)) {
-          const prevRow = seenDates.get(cal.dateStr)!;
-          const dupError = `Duplicate transaction date: ${cal.displayDate}. Another transaction in row ${prevRow} has the same date.`;
-          const dupHowToFix = `A transaction should not be allowed if a transaction already exists on the same date. Row ${prevRow} also has date ${cal.displayDate}. Ensure all transactions have distinct dates.`;
-          validation.fieldErrors["date"] = dupError;
-          const errorItem: ExcelValidationErrorItem = {
-            sheetName,
-            rowNumber,
-            field: "date",
-            columnHeader: getColumnHeaderForField("date"),
-            currentValue: cal.displayDate,
-            code: "DUPLICATE_DATE_IN_FILE",
-            error: dupError,
-            howToFix: dupHowToFix,
-            message: dupError,
-            suggestion: dupHowToFix,
-          };
-          validation.errorItems.push(errorItem);
-          validation.isValid = false;
-        } else {
-          seenDates.set(cal.dateStr, rowNumber);
-        }
-      }
-    }
+
 
     const errors = validation.errorItems.map((e) => e.error);
 

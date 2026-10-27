@@ -131,17 +131,8 @@ TransactionSchema.index({ transactionOrigin: 1, date: -1, isArchived: 1 });
 TransactionSchema.index({ bankOrCash: 1, date: -1, isArchived: 1 });
 TransactionSchema.index({ category: 1, date: -1 });
 
-// Database-level uniqueness constraint to prevent race conditions on duplicate transaction dates
-TransactionSchema.index(
-  { accountType: 1, transactionOrigin: 1, normalizedDate: 1 },
-  {
-    unique: true,
-    partialFilterExpression: {
-      isArchived: { $ne: true },
-      normalizedDate: { $type: "string" },
-    },
-  }
-);
+// Regular compound indexes for efficient querying
+TransactionSchema.index({ accountType: 1, transactionOrigin: 1, normalizedDate: 1 });
 
 export const Transaction: Model<ITransaction> =
   mongoose.models.Transaction ||

@@ -418,64 +418,16 @@ export async function getTransactions(
 }
 
 /**
- * Check whether a transaction already exists on the same calendar date (IST) in the MAIN account.
- * Excludes archived records and optionally excludes the transaction being edited (excludeId).
+ * Check whether a transaction already exists on the same calendar date.
+ * Duplicate dates are now allowed across Foxion accounts, so this always returns exists: false.
  */
-export async function checkTransactionDateConflict(options: {
+export async function checkTransactionDateConflict(_options: {
   date: Date | string;
   accountType?: AccountType | string;
   origin?: TransactionOrigin | string;
   excludeId?: string;
 }): Promise<{ exists: boolean; conflictingDate: string; existingTransaction?: ITransaction | null }> {
-  await connectDB();
-
-  const cal = getISTCalendarDate(options.date);
-  if (!cal) {
-    return { exists: false, conflictingDate: "" };
-  }
-
-  const query: Record<string, unknown> = {
-    accountType: options.accountType || "MAIN",
-    isArchived: { $ne: true },
-    $or: [
-      { normalizedDate: cal.dateStr },
-      { date: { $gte: cal.start, $lte: cal.end } },
-    ],
-  };
-
-  const origin = options.origin || "COMPANY";
-  if (origin === "PRE_COMPANY") {
-    query.transactionOrigin = "PRE_COMPANY";
-  } else if (origin !== "ALL") {
-    query.$and = [
-      {
-        $or: [
-          { transactionOrigin: "COMPANY" },
-          { transactionOrigin: { $exists: false } },
-        ],
-      },
-    ];
-  }
-
-  if (options.excludeId) {
-    const excId = String(options.excludeId);
-    if (mongoose.Types.ObjectId.isValid(excId)) {
-      query._id = { $ne: new mongoose.Types.ObjectId(excId) };
-    } else {
-      query._id = { $ne: excId };
-    }
-  }
-
-  const existing = await Transaction.findOne(query).lean();
-  if (existing) {
-    return {
-      exists: true,
-      conflictingDate: cal.displayDate,
-      existingTransaction: existing as unknown as ITransaction,
-    };
-  }
-
-  return { exists: false, conflictingDate: cal.displayDate };
+  return { exists: false, conflictingDate: "" };
 }
 
 export async function createTransaction(
@@ -485,19 +437,6 @@ export async function createTransaction(
   await connectDB();
 
   const transactionOrigin = data.transactionOrigin || "COMPANY";
-
-  // Prevent duplicate transaction dates in the MAIN account
-  if (data.date) {
-    const conflict = await checkTransactionDateConflict({
-      date: data.date,
-      accountType: "MAIN",
-      origin: transactionOrigin,
-    });
-    if (conflict.exists) {
-      throw new Error("A transaction already exists for this date. Please select another date.");
-    }
-  }
-
   const cal = data.date ? getISTCalendarDate(data.date) : null;
 
   // Ensure category exists
@@ -572,9 +511,6 @@ export async function createTransaction(
 
     return tx;
   } catch (err: unknown) {
-    if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 11000) {
-      throw new Error("A transaction already exists for this date. Please select another date.");
-    }
     throw err;
   }
 }
@@ -593,16 +529,6 @@ export async function updateTransaction(
   const updateData: Record<string, unknown> = { ...data, accountType: "MAIN" };
 
   if (data.date) {
-    const conflict = await checkTransactionDateConflict({
-      date: data.date,
-      accountType: "MAIN",
-      origin: data.transactionOrigin,
-      excludeId: id,
-    });
-    if (conflict.exists) {
-      throw new Error("A transaction already exists for this date. Please select another date.");
-    }
-
     const cal = getISTCalendarDate(data.date);
     if (cal) {
       updateData.normalizedDate = cal.dateStr;
@@ -646,14 +572,7 @@ export async function updateTransaction(
     }
   }
 
-  try {
-    return await Transaction.findByIdAndUpdate(id, updateData, { new: true });
-  } catch (err: unknown) {
-    if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 11000) {
-      throw new Error("A transaction already exists for this date. Please select another date.");
-    }
-    throw err;
-  }
+  return await Transaction.findByIdAndUpdate(id, updateData, { new: true });
 }
 
 export async function archiveTransaction(id: string): Promise<boolean> {

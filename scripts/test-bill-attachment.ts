@@ -408,8 +408,7 @@ async function runAllTests() {
         bankOrCash: "Cash",
       });
 
-      // Attempt to submit a new transaction on the same date with an attachment
-      // (This causes duplicate date conflict error 409 in createTransaction)
+      // Attempt to submit a new transaction with invalid amount to trigger failure rollback
       const pngBuf = createMockPngBuffer();
       const fakePng = new File([new Uint8Array(pngBuf)], "receipt.png", { type: "image/png" });
 
@@ -419,10 +418,10 @@ async function runAllTests() {
         JSON.stringify({
           accountType: "MAIN",
           transactionOrigin: "COMPANY",
-          date: "2026-04-10", // Exact same date!
-          description: "Conflict Attempt",
+          date: "2026-04-10",
+          description: "Invalid Debit Attempt",
           category: "Office Setup",
-          debit: 200,
+          debit: -200, // Invalid negative amount triggers validation failure
           credit: 0,
           paymentMode: "Cash",
           bankOrCash: "Cash",
@@ -436,7 +435,7 @@ async function runAllTests() {
       });
 
       const res = await transactionsPOST(req);
-      assert.strictEqual(res.status, 409, "Should fail with 409 conflict");
+      assert.strictEqual(res.status, 400, "Should fail with 400 validation error");
 
       // Verify that no orphaned file remains in GridFS
       const billsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db!, {

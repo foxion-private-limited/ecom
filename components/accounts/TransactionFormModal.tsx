@@ -125,70 +125,9 @@ export function TransactionFormModal({
   } | null>(null);
   const [isAttachmentRemoved, setIsAttachmentRemoved] = useState(false);
 
-  // Duplicate date validation state
-  const [dateError, setDateError] = useState<string | null>(null);
-  const [isCheckingDate, setIsCheckingDate] = useState(false);
-
   // Dirty-state & Discard confirmation state
   const [initialSnapshot, setInitialSnapshot] = useState<FormSnapshot | null>(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
-
-  // Real-time check for duplicate transaction dates
-  useEffect(() => {
-    if (!isOpen || !date) {
-      setDateError(null);
-      setIsCheckingDate(false);
-      return;
-    }
-
-    // If editing and date has not changed from original transaction date, allow without conflict
-    const originalDate = initialData ? parseDateForInput(initialData.date) : null;
-    if (initialData && date === originalDate) {
-      setDateError(null);
-      setIsCheckingDate(false);
-      return;
-    }
-
-    let isMounted = true;
-    setIsCheckingDate(true);
-
-    const timer = setTimeout(async () => {
-      try {
-        const params = new URLSearchParams({
-          date,
-          accountType: "MAIN",
-        });
-        if (origin) params.set("origin", origin);
-        if (initialData?._id) params.set("excludeId", initialData._id);
-
-        const res = await fetch(`/api/transactions/check-date?${params.toString()}`);
-        if (!res.ok) {
-          if (isMounted) setIsCheckingDate(false);
-          return;
-        }
-        const data = await res.json();
-        if (isMounted) {
-          if (data.exists) {
-            setDateError(
-              data.message || "A transaction already exists for this date. Please select another date."
-            );
-          } else {
-            setDateError(null);
-          }
-          setIsCheckingDate(false);
-        }
-      } catch {
-        if (isMounted) {
-          setIsCheckingDate(false);
-        }
-      }
-    }, 250);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
-  }, [date, isOpen, origin, initialData]);
 
   // Initialize form state and snapshot whenever modal opens or switching transactions
   useEffect(() => {
@@ -437,8 +376,6 @@ export function TransactionFormModal({
 
   const handleConfirmDiscard = () => {
     setShowDiscardConfirm(false);
-    setDateError(null);
-    setIsCheckingDate(false);
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
@@ -492,16 +429,6 @@ export function TransactionFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (dateError) {
-      toast.error(dateError);
-      return;
-    }
-
-    if (isCheckingDate) {
-      toast.error("Validating date availability...");
-      return;
-    }
 
     const numericAmount = parseFloat(amount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
@@ -702,7 +629,6 @@ export function TransactionFormModal({
             required
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            error={dateError || undefined}
           />
 
           <Input
@@ -1029,7 +955,6 @@ export function TransactionFormModal({
             type="submit"
             variant="primary"
             loading={loading}
-            disabled={Boolean(dateError) || isCheckingDate}
           >
             {initialData
               ? "Update Transaction"

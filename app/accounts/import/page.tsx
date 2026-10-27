@@ -253,14 +253,11 @@ function ExcelImportContent() {
     }
   };
 
-  // Validate entire table of rows, applying single-row validation plus cross-row and DB duplicate-date checks
+  // Validate entire table of rows, applying single-row validation
   const validateTableRows = (
     rowsToValidate: EditableImportRow[],
-    dbDates: string[]
+    _dbDates?: string[]
   ): EditableImportRow[] => {
-    const seenDates = new Map<string, number>(); // dateStr -> excelRowNumber
-    const dbDateSet = new Set(dbDates);
-
     return rowsToValidate.map((row) => {
       // 1. Single row field validation (amounts, categories, descriptions, etc.)
       const validation = validateSingleRow(
@@ -287,51 +284,7 @@ function ExcelImportContent() {
 
       const errorItems: ExcelValidationErrorItem[] = [...validation.errorItems];
       const fieldErrors: Record<string, string> = { ...validation.fieldErrors };
-      let isValid = validation.isValid;
-
-      // 2. Duplicate date check against existing transactions in MAIN account in DB
-      const cal = getISTCalendarDate(row.date);
-      if (cal) {
-        if (dbDateSet.has(cal.dateStr)) {
-          const errMsg = `Duplicate transaction date: ${cal.displayDate}. A transaction already exists for this date.`;
-          const howToFix = `A transaction is already recorded for ${cal.displayDate} in the MAIN account. Duplicate transaction dates are not permitted.`;
-          isValid = false;
-          fieldErrors["date"] = errMsg;
-          errorItems.push({
-            sheetName: row.sheetName || "Sheet1",
-            rowNumber: row.excelRowNumber || row.slNo,
-            field: "date",
-            columnHeader: getColumnHeaderForField("date"),
-            currentValue: cal.displayDate,
-            code: "DUPLICATE_TRANSACTION_DATE",
-            error: errMsg,
-            howToFix,
-            message: errMsg,
-            suggestion: howToFix,
-          });
-        } else if (seenDates.has(cal.dateStr)) {
-          // 3. Duplicate date check against other rows in the same Excel file/table
-          const prevRow = seenDates.get(cal.dateStr)!;
-          const errMsg = `Duplicate transaction date: ${cal.displayDate}. Another transaction in row ${prevRow} has the same date.`;
-          const howToFix = `Each transaction in the MAIN account must have a unique calendar date. Row ${prevRow} also uses ${cal.displayDate}. Change the date or combine entries.`;
-          isValid = false;
-          fieldErrors["date"] = errMsg;
-          errorItems.push({
-            sheetName: row.sheetName || "Sheet1",
-            rowNumber: row.excelRowNumber || row.slNo,
-            field: "date",
-            columnHeader: getColumnHeaderForField("date"),
-            currentValue: cal.displayDate,
-            code: "DUPLICATE_DATE_IN_FILE",
-            error: errMsg,
-            howToFix,
-            message: errMsg,
-            suggestion: howToFix,
-          });
-        } else {
-          seenDates.set(cal.dateStr, row.excelRowNumber || row.slNo);
-        }
-      }
+      const isValid = validation.isValid;
 
       return {
         ...row,
