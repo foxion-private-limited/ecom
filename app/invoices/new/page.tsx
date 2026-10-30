@@ -56,6 +56,7 @@ export default function NewInvoicePage() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [isProductionReady, setIsProductionReady] = useState(false);
   const [readinessBlockers, setReadinessBlockers] = useState<string[]>([]);
+  const [gstEffectiveDate, setGstEffectiveDate] = useState<string | null>(null);
 
   // Mode
   const [mode, setMode] = useState<"TEST" | "PRODUCTION">("TEST");
@@ -143,6 +144,11 @@ export default function NewInvoicePage() {
         if (data.success && data.settings) {
           setIsProductionReady(data.productionReadiness?.isReady || false);
           setReadinessBlockers(data.productionReadiness?.blockers || []);
+          if (data.settings.gstRegistrationEffectiveDate) {
+            setGstEffectiveDate(
+              new Date(data.settings.gstRegistrationEffectiveDate).toISOString().split("T")[0]
+            );
+          }
           if (data.settings.testMode) {
             setMode("TEST");
           }
@@ -408,26 +414,43 @@ export default function NewInvoicePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+
+      let data: { success?: boolean; invoice?: { _id: string }; error?: string } = {};
+      try {
+        const text = await res.text();
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned error (${res.status})`);
+      }
+
       if (data.success && data.invoice) {
         toast.success("Draft invoice saved successfully");
         router.push(`/invoices/${data.invoice._id}`);
       } else {
         toast.error(data.error || "Failed to save draft invoice");
       }
-    } catch {
-      toast.error("Network error saving draft");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error saving draft";
+      toast.error(msg);
     } finally {
       setSavingDraft(false);
     }
   };
 
   const handleIssueDirectly = async () => {
-    if (mode === "PRODUCTION" && !isProductionReady) {
-      toast.error(
-        `Production issuance blocked: ${readinessBlockers.join("; ")}`
-      );
-      return;
+    if (mode === "PRODUCTION") {
+      if (!isProductionReady) {
+        toast.error(
+          `Production issuance blocked: ${readinessBlockers.join("; ")}`
+        );
+        return;
+      }
+      if (gstEffectiveDate && invoiceDate < gstEffectiveDate) {
+        toast.error(
+          `Invoice date (${invoiceDate}) cannot be prior to GST registration effective date (${gstEffectiveDate}). Please adjust the invoice date or update settings.`
+        );
+        return;
+      }
     }
 
     if (!buyerName.trim() || !line1.trim() || !city.trim()) {
@@ -444,7 +467,15 @@ export default function NewInvoicePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const dataDraft = await resDraft.json();
+
+      let dataDraft: { success?: boolean; invoice?: { _id: string }; error?: string } = {};
+      try {
+        const text = await resDraft.text();
+        dataDraft = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned error while creating draft (${resDraft.status})`);
+      }
+
       if (!dataDraft.success || !dataDraft.invoice) {
         throw new Error(dataDraft.error || "Failed to create draft");
       }
@@ -456,7 +487,18 @@ export default function NewInvoicePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ exportPng }),
       });
-      const dataIssue = await resIssue.json();
+
+      let dataIssue: {
+        success?: boolean;
+        invoice?: { _id: string; serialNumber: string };
+        error?: string;
+      } = {};
+      try {
+        const text = await resIssue.text();
+        dataIssue = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned error while issuing invoice (${resIssue.status})`);
+      }
 
       if (dataIssue.success && dataIssue.invoice) {
         toast.success(
@@ -665,6 +707,21 @@ export default function NewInvoicePage() {
                 Configure Settings
               </Button>
             </Link>
+          </div>
+        )}
+
+        {/* Warning if invoice date is prior to GST registration effective date */}
+        {mode === "PRODUCTION" && isProductionReady && gstEffectiveDate && invoiceDate < gstEffectiveDate && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 text-xs text-amber-300">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-sm text-amber-200">
+                Invoice Date Prior to GST Registration Effective Date
+              </p>
+              <p className="mt-1 text-slate-300">
+                The selected invoice date ({invoiceDate}) is prior to Foxion&apos;s GST registration effective date ({gstEffectiveDate}). Production invoices cannot be dated before your registration took effect.
+              </p>
+            </div>
           </div>
         )}
 

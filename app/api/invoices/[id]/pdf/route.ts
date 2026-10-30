@@ -7,6 +7,9 @@ import { buildInvoiceViewModel } from "@/lib/invoices/viewModel";
 import { renderInvoiceHtml } from "@/lib/invoices/template";
 import { renderHtmlToPdf } from "@/lib/invoices/pdfRenderer";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }

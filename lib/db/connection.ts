@@ -83,6 +83,31 @@ export async function connectDB(): Promise<typeof mongoose> {
     } catch (credErr) {
       console.warn("[Foxion DB] Error verifying CRED category:", credErr);
     }
+
+    // Ensure TaxInvoice mode_1_financialYear_1_serialNumber_1 has partialFilterExpression
+    try {
+      const { TaxInvoice } = await import("@/lib/models/TaxInvoice");
+      const indexes = await TaxInvoice.collection.indexes();
+      const legacyIdx = indexes.find(
+        (idx) =>
+          idx.name === "mode_1_financialYear_1_serialNumber_1" &&
+          !idx.partialFilterExpression
+      );
+      if (legacyIdx) {
+        console.log("[Foxion DB] Migrating TaxInvoice index to partialFilterExpression...");
+        await TaxInvoice.collection.dropIndex("mode_1_financialYear_1_serialNumber_1");
+        await TaxInvoice.collection.createIndex(
+          { mode: 1, financialYear: 1, serialNumber: 1 },
+          {
+            unique: true,
+            partialFilterExpression: { serialNumber: { $type: "string" } },
+            name: "mode_1_financialYear_1_serialNumber_1",
+          }
+        );
+      }
+    } catch (idxErr) {
+      // Ignore if collection not created yet
+    }
   } catch (e) {
     cached!.promise = null;
     throw e;

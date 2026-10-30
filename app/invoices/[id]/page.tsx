@@ -161,15 +161,22 @@ export default function InvoiceDetailsPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ exportPng: true }),
       });
-      const data = await res.json();
+      let data: { success?: boolean; message?: string; error?: string } = {};
+      try {
+        const text = await res.text();
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server returned error (${res.status})`);
+      }
       if (data.success) {
         toast.success(data.message || "Invoice issued successfully");
         fetchInvoice();
       } else {
         toast.error(data.error || "Failed to issue invoice");
       }
-    } catch {
-      toast.error("Network error while issuing invoice");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error while issuing invoice";
+      toast.error(msg);
     } finally {
       setIssuing(false);
     }

@@ -278,9 +278,13 @@ const TaxInvoiceSchema = new Schema<ITaxInvoice>(
 );
 
 // Unique constraint: serial number must be unique within (mode, financialYear)
+// Only enforced for issued invoices where serialNumber is allocated (string)
 TaxInvoiceSchema.index(
   { mode: 1, financialYear: 1, serialNumber: 1 },
-  { unique: true, sparse: true }
+  {
+    unique: true,
+    partialFilterExpression: { serialNumber: { $type: "string" } },
+  }
 );
 TaxInvoiceSchema.index({ createdAt: -1 });
 TaxInvoiceSchema.index({ mode: 1, status: 1, createdAt: -1 });
